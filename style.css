@@ -9,16 +9,17 @@ body {
 
 #viewport {
     flex: 1;
-    background: #fafafa;
-    min-height: 100vh;
+    background: #1a1a1a;
+    min-height: 95vh;
 }
 
 #panel {
     width: 320px;
     padding: 32px 24px;
     border-left: 1px solid #ddd;
-    font-size: 14px1;
+    font-size: 14px;
     line-height: 1.5;
+    align-self: first baseline;
 }
 
 #panel h1{
@@ -34,5 +35,5 @@ body {
 #panel .probe {
     color: #666;
     font-family: ui-monospace, monospace;
-    white-space: pre    ;
+    white-space: pre;
 }
