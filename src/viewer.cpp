@@ -37,8 +37,8 @@ GLuint nbo = 0;
 
 
 float cam_theta = 0.0f;
-float cam_phi = 0.3f;
-float cam_dist = 3.0f;
+float cam_phi = 0.25f;
+float cam_dist = 5.0f;
 
 
 bool dragging = false;
@@ -145,7 +145,7 @@ const char* fragment_shader_source = R"glsl(#version 300 es
         vec3 color = base * shadow;
 
         // Anisotropic-ish specular — metals reflect sharply
-        float spec = pow(NdotH, 140.0);
+        float spec = pow(NdotH, 100.0);
         // Specular tints with the underlying steel band
         color += mix(vec3(0.6, 0.55, 0.5), vec3(1.0, 0.95, 0.85), band) * spec * 1.8;
 
@@ -286,10 +286,20 @@ void render_frame(){
 
     glUseProgram(shader_program);
 
+    double now = emscripten_get_now();     // ms since page load
+    static double last = now;
+    float dt = (float)(now - last) * 0.001f;
+    last = now;
+    
+    if (!dragging) {
+        cam_theta += 0.15f * dt;  // 0.5 radians per second, framerate-independent
+    }
+    
+
     float eye_x = cam_dist * cosf(cam_phi) * sinf(cam_theta);
     float eye_y = cam_dist * sinf(cam_phi);
     float eye_z = cam_dist * cosf(cam_phi) * cosf(cam_theta);
-
+    
     float view[16], proj[16], mvp[16];
     mat4_look_at(view, eye_x, eye_y, eye_z,
                        0.0f, 0.0f, 0.0f,

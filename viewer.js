@@ -71,7 +71,7 @@ var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIR
 
 // --pre-jses are emitted after the Module integration code, so that they can
 // refer to Module (if they choose; they can also define Module)
-// include: /tmp/tmp_40molep.js
+// include: /tmp/tmpp4vuqrix.js
 
   if (!Module['expectedDataFileDownloads']) Module['expectedDataFileDownloads'] = 0;
   Module['expectedDataFileDownloads']++;
@@ -204,21 +204,21 @@ Module['FS_createPath']("/", "meshes", true, true);
 
   })();
 
-// end include: /tmp/tmp_40molep.js
-// include: /tmp/tmp584ryz1_.js
+// end include: /tmp/tmpp4vuqrix.js
+// include: /tmp/tmptkya_xz0.js
 
     // All the pre-js content up to here must remain later on, we need to run
     // it.
     if ((typeof ENVIRONMENT_IS_WASM_WORKER != 'undefined' && ENVIRONMENT_IS_WASM_WORKER) || (typeof ENVIRONMENT_IS_PTHREAD != 'undefined' && ENVIRONMENT_IS_PTHREAD) || (typeof ENVIRONMENT_IS_AUDIO_WORKLET != 'undefined' && ENVIRONMENT_IS_AUDIO_WORKLET)) Module['preRun'] = [];
     var necessaryPreJSTasks = Module['preRun'].slice();
-  // end include: /tmp/tmp584ryz1_.js
-// include: /tmp/tmpjpeo9jv3.js
+  // end include: /tmp/tmptkya_xz0.js
+// include: /tmp/tmppoltea6o.js
 
     if (!Module['preRun']) throw 'Module.preRun should exist because file support used it; did a pre-js delete it?';
     necessaryPreJSTasks.forEach((task) => {
       if (Module['preRun'].indexOf(task) < 0) throw 'All preRun tasks that exist before user pre-js code should remain after; did you replace Module or modify Module.preRun?';
     });
-  // end include: /tmp/tmpjpeo9jv3.js
+  // end include: /tmp/tmppoltea6o.js
 
 
 var arguments_ = [];
@@ -3975,6 +3975,8 @@ var findStringEnd = (heapOrArray, idx, maxBytesToRead, ignoreNul) => {
       return 0;
     };
 
+  var _emscripten_get_now = () => performance.now();
+
   var getHeapMax = () =>
       // Stay one Wasm page short of 4GB: while e.g. Chrome is able to allocate
       // full 4GB Wasm memories, the size will wrap back to 0 bytes in Wasm side
@@ -4277,7 +4279,6 @@ var findStringEnd = (heapOrArray, idx, maxBytesToRead, ignoreNul) => {
   };
   
   
-  var _emscripten_get_now = () => performance.now();
   
   
     /**
@@ -6223,6 +6224,8 @@ var wasmImports = {
   emscripten_get_device_pixel_ratio: _emscripten_get_device_pixel_ratio,
   /** @export */
   emscripten_get_element_css_size: _emscripten_get_element_css_size,
+  /** @export */
+  emscripten_get_now: _emscripten_get_now,
   /** @export */
   emscripten_resize_heap: _emscripten_resize_heap,
   /** @export */
