@@ -76,6 +76,8 @@ const char* grid_vertex_shader_source = R"glsl(#version 300 es
 
 
 const char* grid_fragment_shader_source = R"glsl(#version 300 es
+    #extension GL_EXT_frag_depth : enable
+
     precision highp float;
 
     in vec2 v_clip;
