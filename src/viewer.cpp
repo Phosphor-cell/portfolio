@@ -21,10 +21,11 @@ GLint u_cam_pos_loc = -1;
 
 GLuint grid_program = 0;
 GLuint grid_vao = 0;
-GLuint grid_vbo = 0;
-GLsizei grid_vertex_count = 0;
+GLint grid_u_inv_vp_loc = -1;
+GLint grid_u_cam_pos_loc = -1;
 GLint grid_u_mvp_loc = -1;
 
+GLint grid_u_vp_loc = -1;  // new global
 
 float* mesh_positions = nullptr;
 float* mesh_normals = nullptr;
@@ -57,21 +58,67 @@ float triangle_vertices[] = {
 
 const char* grid_vertex_shader_source = R"glsl(#version 300 es
     precision highp float;
-    layout(location = 0) in vec3 a_position;
-    uniform mat4 u_mvp;
-    void main(){
-        gl_Position = u_mvp * vec4(a_position, 1.0);
+    out vec2 v_clip;
+
+    void main() {
+        vec2 positions[6] = vec2[](
+            vec2(-1.0, -1.0),
+            vec2( 1.0, -1.0),
+            vec2( 1.0,  1.0),
+            vec2(-1.0, -1.0),
+            vec2( 1.0,  1.0),
+            vec2(-1.0,  1.0)
+        );
+        v_clip = positions[gl_VertexID];
+        gl_Position = vec4(v_clip, 0.0, 1.0);
     }
 )glsl";
 
 
 const char* grid_fragment_shader_source = R"glsl(#version 300 es
     precision highp float;
-    out vec4 frag_color;
-    void main(){
-        frag_color = vec4(0.25);
-    }
 
+    in vec2 v_clip;
+    uniform mat4 u_inv_vp;
+    uniform mat4 u_vp;
+    uniform vec3 u_cam_pos;
+
+    out vec4 frag_color;
+
+    void main() {
+        vec4 world_far = u_inv_vp * vec4(v_clip, 1.0, 1.0);
+        world_far.xyz /= world_far.w;
+        vec3 ray_dir = normalize(world_far.xyz - u_cam_pos);
+
+        float plane_y = -1.0;
+        float t = (plane_y - u_cam_pos.y) / ray_dir.y;
+        if (t < 0.0) discard;
+
+        vec3 hit = u_cam_pos + t * ray_dir;
+
+        vec2 f = fract(hit.xz);
+        vec2 dist_to_line = min(f, 1.0 - f);
+        float line_dist = min(dist_to_line.x, dist_to_line.y);
+
+        float pixel_width = fwidth(line_dist);
+        float line = 1.0 - smoothstep(0.0, pixel_width * 1.5, line_dist);
+
+        // Distance-based fade: fully visible up to fade_start, gone by fade_end
+        float dist_from_cam = length(hit - u_cam_pos);
+        float fade_start = 15.0;
+        float fade_end   = 30.0;
+        float fade = 1.0 - smoothstep(fade_start, fade_end, dist_from_cam);
+
+        float alpha = line * fade;
+        if (alpha < 0.01) discard;
+
+        // Correct depth so the sphere occludes the grid properly
+        vec4 clip_pos = u_vp * vec4(hit, 1.0);
+        gl_FragDepth = (clip_pos.z / clip_pos.w) * 0.5 + 0.5;
+
+        vec3 line_color = vec3(0.7, 0.75, 0.85);
+        frag_color = vec4(line_color, alpha);
+    }
 )glsl";
 //Shader information and positions
 const char* vertex_shader_source = R"glsl(#version 300 es
@@ -229,6 +276,38 @@ void mat4_look_at(float* out, float eye_x, float eye_y, float eye_z, float targe
 }
 
 
+void mat4_inverse_view(float* out, float eye_x, float eye_y, float eye_z, float target_x, float target_y, float target_z, float up_x, float up_y, float up_z){
+     //Distance
+    float fx = target_x - eye_x;
+    float fy = target_y - eye_y;
+    float fz = target_z - eye_z;
+
+    float f_len = sqrtf(fx*fx + fy*fy + fz*fz);
+    fx /= f_len; fy /= f_len; fz /= f_len;  
+
+
+    //Right Axis
+    float rx = fy*up_z - fz*up_y;
+    float ry = fz*up_x - fx*up_z;
+    float rz = fx*up_y - fy*up_x;
+
+    float r_len = sqrtf(rx*rx + ry*ry + rz*rz);
+
+    rx /= r_len; ry /= r_len; rz /= r_len;
+
+    //True Up (The actual Y vector)
+    // True up: right × forward
+    float ux = ry*fz - rz*fy;
+    float uy = rz*fx - rx*fz;
+    float uz = rx*fy - ry*fx;
+    
+    out[0] = rx;   out[4] = ux;   out[8]  = -fx;  out[12] = eye_x;
+    out[1] = ry;   out[5] = uy;   out[9]  = -fy;  out[13] = eye_y;
+    out[2] = rz;   out[6] = uz;   out[10] = -fz;  out[14] = eye_z;
+    out[3] = 0.0f; out[7] = 0.0f; out[11] = 0.0f; out[15] = 1.0f;
+
+}
+
 
 void mat4_perspective(float* out, float fov_rad, float aspect, float near, float far) {
     float f = 1.0f / tanf(fov_rad * 0.5f);
@@ -248,6 +327,15 @@ void mat4_perspective(float* out, float fov_rad, float aspect, float near, float
     out[12] = 0; out[13] = 0;
     out[14] = 2.0f * far * near * nf;
     out[15] = 0;
+}
+
+void mat4_inverse_perspective(float* out, float fov_rad, float aspect, float near, float far) {
+    float f = 1.0f / tanf(fov_rad * 0.5f);
+
+    out[0] = aspect / f;  out[1] = 0;      out[2] = 0;   out[3]  = 0;
+    out[4] = 0;           out[5] = 1.0f/f; out[6] = 0;   out[7]  = 0;
+    out[8] = 0;           out[9] = 0;      out[10] = 0;  out[11] = (near - far) / (2.0f * far * near);
+    out[12]= 0;           out[13]= 0;      out[14]= -1;  out[15] = (far + near) / (2.0f * far * near);
 }
 
 void mat4_multiply(float* out, const float* a, const float* b) {
@@ -307,16 +395,31 @@ void render_frame(){
     mat4_perspective(proj, 1.0472f, aspect, 0.1f, 100.0f);
     mat4_multiply(mvp, proj, view);
 
+    float inv_view[16], inv_proj[16], inv_vp[16];
+    mat4_inverse_view(inv_view, eye_x, eye_y, eye_z, 0, 0, 0, 0, 1, 0);
+    mat4_inverse_perspective(inv_proj, 1.0472f, aspect, 0.1f, 100.0f);
+    mat4_multiply(inv_vp, inv_view, inv_proj);  // inv(V*P)... wait — see below
+
     glUniformMatrix4fv(u_mvp_loc, 1, GL_FALSE, mvp);
     glUniform3f(u_cam_pos_loc, eye_x, eye_y, eye_z);
 
     glBindVertexArray(vao);
     glDrawElements(GL_TRIANGLES, mesh_index_count, GL_UNSIGNED_INT, 0);
 
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    
+
     glUseProgram(grid_program);
-    glUniformMatrix4fv(grid_u_mvp_loc, 1, GL_FALSE, mvp);
+    glUniformMatrix4fv(grid_u_inv_vp_loc, 1, GL_FALSE, inv_vp);
+    glUniformMatrix4fv(grid_u_vp_loc, 1, GL_FALSE, mvp);
+    glUniform3f(grid_u_cam_pos_loc, eye_x, eye_y, eye_z);
     glBindVertexArray(grid_vao);
-    glDrawArrays(GL_LINES, 0, grid_vertex_count);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
 
 
 }
@@ -521,49 +624,6 @@ bool load_obj(const char* path) {
     return true;
 }
 
-
-void build_grid(float half_extent, int cells){
-    uint32_t num_verts = (cells+1) * 2 * 2;
-    
-    float* verts = (float*)malloc(num_verts*3*sizeof(float));
-    float step = (2 * half_extent) / cells;
-    for (int i = 0; i <= cells; i++){
-       float t = -half_extent + i * step;
-       verts[i*12 + 0]  = t;              // vert 0 x
-       verts[i*12 + 1]  = -1;              // vert 0 y
-       verts[i*12 + 2]  = -half_extent;   // vert 0 z
-
-       verts[i*12 + 3]  = t;              // vert 1 x
-       verts[i*12 + 4]  = -1;              // vert 1 y
-       verts[i*12 + 5]  = half_extent;    // vert 1 z
-
-       // Line B: runs along X at z = t
-       verts[i*12 + 6]  = -half_extent;   // vert 2 x
-       verts[i*12 + 7]  = -1;              // vert 2 y
-       verts[i*12 + 8]  = t;              // vert 2 z
-
-       verts[i*12 + 9]  = half_extent;    // vert 3 x
-       verts[i*12 + 10] = -1;              // vert 3 y
-       verts[i*12 + 11] = t;              // vert 3 z
-
-       
-    }
-
-    grid_vertex_count = num_verts;
-
-    glGenVertexArrays(1, &grid_vao);
-    glBindVertexArray(grid_vao);
-
-    glGenBuffers(1, &grid_vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, grid_vbo);
-    glBufferData(GL_ARRAY_BUFFER, num_verts * 3 * sizeof(float), verts, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    free(verts);   
-}
-
 //Initilize graphics and setup context for the WebGL
 void initialize_graphics(){
 
@@ -609,6 +669,7 @@ void initialize_graphics(){
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh_index_count*sizeof(unsigned int), mesh_indices, GL_STATIC_DRAW);
 
+    glGenVertexArrays(1, &grid_vao);
     GLuint gvs = compile_shader(GL_VERTEX_SHADER, grid_vertex_shader_source);
     GLuint gfs = compile_shader(GL_FRAGMENT_SHADER, grid_fragment_shader_source);
 
@@ -616,7 +677,9 @@ void initialize_graphics(){
 
     grid_u_mvp_loc = glGetUniformLocation(grid_program, "u_mvp");
 
-    build_grid(10.0f, 20);
+    grid_u_inv_vp_loc  = glGetUniformLocation(grid_program, "u_inv_vp");
+    grid_u_vp_loc = glGetUniformLocation(grid_program, "u_vp");
+    grid_u_cam_pos_loc = glGetUniformLocation(grid_program, "u_cam_pos");
 
 
 

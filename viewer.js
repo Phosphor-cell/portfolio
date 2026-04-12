@@ -71,7 +71,7 @@ var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIR
 
 // --pre-jses are emitted after the Module integration code, so that they can
 // refer to Module (if they choose; they can also define Module)
-// include: /tmp/tmpp4vuqrix.js
+// include: /tmp/tmpwrd9fej4.js
 
   if (!Module['expectedDataFileDownloads']) Module['expectedDataFileDownloads'] = 0;
   Module['expectedDataFileDownloads']++;
@@ -204,21 +204,21 @@ Module['FS_createPath']("/", "meshes", true, true);
 
   })();
 
-// end include: /tmp/tmpp4vuqrix.js
-// include: /tmp/tmptkya_xz0.js
+// end include: /tmp/tmpwrd9fej4.js
+// include: /tmp/tmp554buh6t.js
 
     // All the pre-js content up to here must remain later on, we need to run
     // it.
     if ((typeof ENVIRONMENT_IS_WASM_WORKER != 'undefined' && ENVIRONMENT_IS_WASM_WORKER) || (typeof ENVIRONMENT_IS_PTHREAD != 'undefined' && ENVIRONMENT_IS_PTHREAD) || (typeof ENVIRONMENT_IS_AUDIO_WORKLET != 'undefined' && ENVIRONMENT_IS_AUDIO_WORKLET)) Module['preRun'] = [];
     var necessaryPreJSTasks = Module['preRun'].slice();
-  // end include: /tmp/tmptkya_xz0.js
-// include: /tmp/tmppoltea6o.js
+  // end include: /tmp/tmp554buh6t.js
+// include: /tmp/tmpqnhjv_nw.js
 
     if (!Module['preRun']) throw 'Module.preRun should exist because file support used it; did a pre-js delete it?';
     necessaryPreJSTasks.forEach((task) => {
       if (Module['preRun'].indexOf(task) < 0) throw 'All preRun tasks that exist before user pre-js code should remain after; did you replace Module or modify Module.preRun?';
     });
-  // end include: /tmp/tmppoltea6o.js
+  // end include: /tmp/tmpqnhjv_nw.js
 
 
 var arguments_ = [];
@@ -5236,6 +5236,9 @@ var findStringEnd = (heapOrArray, idx, maxBytesToRead, ignoreNul) => {
     };
   var _glBindVertexArray = _emscripten_glBindVertexArray;
 
+  var _emscripten_glBlendFunc = (x0, x1) => GLctx.blendFunc(x0, x1);
+  var _glBlendFunc = _emscripten_glBlendFunc;
+
   var _emscripten_glBufferData = (target, size, data, usage) => {
   
       if (true) {
@@ -5299,6 +5302,14 @@ var findStringEnd = (heapOrArray, idx, maxBytesToRead, ignoreNul) => {
       GL.shaders[id] = null;
     };
   var _glDeleteShader = _emscripten_glDeleteShader;
+
+  var _emscripten_glDepthMask = (flag) => {
+      GLctx.depthMask(!!flag);
+    };
+  var _glDepthMask = _emscripten_glDepthMask;
+
+  var _emscripten_glDisable = (x0) => GLctx.disable(x0);
+  var _glDisable = _emscripten_glDisable;
 
   var _emscripten_glDrawArrays = (mode, first, count) => {
       // bind any client-side buffers
@@ -6259,6 +6270,8 @@ var wasmImports = {
   /** @export */
   glBindVertexArray: _glBindVertexArray,
   /** @export */
+  glBlendFunc: _glBlendFunc,
+  /** @export */
   glBufferData: _glBufferData,
   /** @export */
   glClear: _glClear,
@@ -6272,6 +6285,10 @@ var wasmImports = {
   glCreateShader: _glCreateShader,
   /** @export */
   glDeleteShader: _glDeleteShader,
+  /** @export */
+  glDepthMask: _glDepthMask,
+  /** @export */
+  glDisable: _glDisable,
   /** @export */
   glDrawArrays: _glDrawArrays,
   /** @export */
