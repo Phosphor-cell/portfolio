@@ -96,12 +96,12 @@ const char* grid_fragment_shader_source = R"glsl(#version 300 es
 
         vec3 hit = u_cam_pos + t * ray_dir;
 
-        vec2 f = fract(hit.xz);
-        vec2 dist_to_line = min(f, 1.0 - f);
+        vec2 grid_coord = hit.xz;
+        vec2 deriv = fwidth(grid_coord);
+        vec2 f = fract(grid_coord);
+        vec2 dist_to_line = min(f, 1.0 - f) / deriv;
         float line_dist = min(dist_to_line.x, dist_to_line.y);
-
-        float pixel_width = fwidth(line_dist);
-        float line = 1.0 - smoothstep(0.0, pixel_width * 1.5, line_dist);
+        float line = 1.0 - smoothstep(0.0, 1.5, line_dist);
 
         // Distance-based fade: fully visible up to fade_start, gone by fade_end
         float dist_from_cam = length(hit - u_cam_pos);
@@ -116,7 +116,7 @@ const char* grid_fragment_shader_source = R"glsl(#version 300 es
         vec4 clip_pos = u_vp * vec4(hit, 1.0);
         gl_FragDepth = (clip_pos.z / clip_pos.w) * 0.5 + 0.5;
 
-        vec3 line_color = vec3(0.7, 0.75, 0.85);
+        vec3 line_color = vec3(0.3, 0.1, 0.50);
         frag_color = vec4(line_color, alpha);
     }
 )glsl";
