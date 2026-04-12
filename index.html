@@ -10,9 +10,23 @@
     <body>
         <aside id="panel">
             <h1>Dev Bhatt</h1>
-            <p class="tagline">Building 3D tools that ship</p>
-            <p>Click Any point on the mesh</p>
-            <div class="probe" id="probe">-</div>
+            <p class="role">Founder, <a href="https://shapesynth.com">ShapeSynth</a></p>
+            <p class="pitch">A real-time mesh viewer written from scratch in C++ and GLSL,
+            compiled to WebAssembly. No Three.js, no engine — every pixel
+            is hand-authored graphics code.</p>
+
+            <div class="probe-wrap">
+                <span class="probe-label">Click and Drag the mesh</span>
+                <div class="probe" id="probe">—</div>
+            </div>
+
+            <nav class="links">
+                <a href="mailto:">Email</a>
+                <a href="https://github.com/Phosphor-cell">GitHub</a>
+                <a href="/resume.pdf">Résumé</a>
+            </nav>
+
+            <p class="footnote">No Three.js. No React. ~800 lines of C++.</p>
         </aside>
         <canvas id="viewport"></canvas>
         <script src="viewer.js"></script>
