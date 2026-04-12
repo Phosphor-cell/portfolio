@@ -10,7 +10,8 @@ body {
 #viewport {
     flex: 1;
     background: #1a1a1a;
-    min-height: 95vh;
+    min-height: 90vh;
+    image-rendering: auto;
 }
 
 #panel {
