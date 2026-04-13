@@ -94,6 +94,16 @@ const char* grid_fragment_shader_source = R"glsl(#version 300 es
 
         vec3 hit = u_cam_pos + t * ray_dir;
 
+        // Discard grid pixels occluded by the sphere at origin
+        vec3 oc = u_cam_pos;
+        float b = dot(oc, ray_dir);
+        float c = dot(oc, oc) - 0.98;  // sphere radius^2
+        float disc = b*b - c;
+        if (disc > 0.0) {
+            float t_sphere = -b - sqrt(disc);
+            if (t_sphere > 0.0 && t_sphere < t) discard;
+        }
+
         vec2 grid_coord = hit.xz;
         vec2 deriv = fwidth(grid_coord);
         vec2 f = fract(grid_coord);
@@ -103,9 +113,10 @@ const char* grid_fragment_shader_source = R"glsl(#version 300 es
 
         float dist_from_cam = length(hit - u_cam_pos);
         float fade_start = 15.0;
-        float fade_end   = 30.0;grid_u_vp_loc = glGetUniformLocation(grid_program, "u_vp");
+        float fade_end   = 30.0;
 
         float fade = 1.0 - smoothstep(fade_start, fade_end, dist_from_cam);
+
 
         float alpha = line * fade;
         if (alpha < 0.01) discard;
@@ -393,36 +404,28 @@ void render_frame(){
     mat4_inverse_view(inv_view, eye_x, eye_y, eye_z, 0, 0, 0, 0, 1, 0);
     mat4_inverse_perspective(inv_proj, 1.0472f, aspect, 0.1f, 100.0f);
     mat4_multiply(inv_vp, inv_view, inv_proj);  // inv(V*P)... wait — see below
-
-    glUniformMatrix4fv(u_mvp_loc, 1, GL_FALSE, mvp);
-    glUniform3f(u_cam_pos_loc, eye_x, eye_y, eye_z);
-
-    glBindVertexArray(vao);
-    glDrawElements(GL_TRIANGLES, mesh_index_count, GL_UNSIGNED_INT, 0);
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);
     
 
-    // --- Grid first: opaque-ish floor with blending, depth writes ON ---
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    glUseProgram(grid_program);
-    glUniformMatrix4fv(grid_u_inv_vp_loc, 1, GL_FALSE, inv_vp);
-    glUniform3f(grid_u_cam_pos_loc, eye_x, eye_y, eye_z);
-    glBindVertexArray(grid_vao);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-
+    // Sphere
     glDisable(GL_BLEND);
-
-    // --- Sphere second: renders on top with normal depth test ---
+    glDepthMask(GL_TRUE);
     glUseProgram(shader_program);
     glUniformMatrix4fv(u_mvp_loc, 1, GL_FALSE, mvp);
     glUniform3f(u_cam_pos_loc, eye_x, eye_y, eye_z);
     glBindVertexArray(vao);
     glDrawElements(GL_TRIANGLES, mesh_index_count, GL_UNSIGNED_INT, 0);
+
+    // Grid on top, blended, no depth write
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glUseProgram(grid_program);
+    glUniformMatrix4fv(grid_u_inv_vp_loc, 1, GL_FALSE, inv_vp);
+    glUniform3f(grid_u_cam_pos_loc, eye_x, eye_y, eye_z);
+    glBindVertexArray(grid_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
 
 
 }
