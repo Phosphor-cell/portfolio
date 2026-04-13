@@ -7,15 +7,25 @@ body {
     min-height: 100vh;
 }
 
+html, body{
+    height: 100%;
+}
+
+
 #viewport {
     flex: 1;
+    display: block;
     background: #1a1a1a;
-    min-height: 90vh;
+    height: 100vh;
+    width: 100%;
     image-rendering: auto;
+    overflow: hidden;
+    touch-action: none;
+
 }
 
 #panel {
-    width: 320px;
+    width: 160px;
     padding: 32px 24px;
     border-left: 1px solid #ddd;
     font-size: 14px;
@@ -39,3 +49,23 @@ body {
     white-space: pre;
 }
 
+
+
+/* Mobile: stack vertically, panel below canvas */
+@media (max-width: 768px) {
+    body {
+        flex-direction: column;
+        overflow: auto;
+    }
+    #viewport {
+        width: 100vw;
+        height: 60vh;
+        flex: none;
+    }
+    #panel {
+        width: 100%;
+        border-left: none;
+        border-top: 1px solid #ddd;
+        box-sizing: border-box;
+    }
+}
