@@ -25,7 +25,6 @@ GLint grid_u_inv_vp_loc = -1;
 GLint grid_u_cam_pos_loc = -1;
 GLint grid_u_mvp_loc = -1;
 
-GLint grid_u_vp_loc = -1;  // new global
 
 float* mesh_positions = nullptr;
 float* mesh_normals = nullptr;
@@ -76,13 +75,10 @@ const char* grid_vertex_shader_source = R"glsl(#version 300 es
 
 
 const char* grid_fragment_shader_source = R"glsl(#version 300 es
-    #extension GL_EXT_frag_depth : enable
-
     precision highp float;
 
     in vec2 v_clip;
     uniform mat4 u_inv_vp;
-    uniform mat4 u_vp;
     uniform vec3 u_cam_pos;
 
     out vec4 frag_color;
@@ -105,18 +101,14 @@ const char* grid_fragment_shader_source = R"glsl(#version 300 es
         float line_dist = min(dist_to_line.x, dist_to_line.y);
         float line = 1.0 - smoothstep(0.0, 1.5, line_dist);
 
-        // Distance-based fade: fully visible up to fade_start, gone by fade_end
         float dist_from_cam = length(hit - u_cam_pos);
         float fade_start = 15.0;
-        float fade_end   = 30.0;
+        float fade_end   = 30.0;grid_u_vp_loc = glGetUniformLocation(grid_program, "u_vp");
+
         float fade = 1.0 - smoothstep(fade_start, fade_end, dist_from_cam);
 
         float alpha = line * fade;
         if (alpha < 0.01) discard;
-
-        // Correct depth so the sphere occludes the grid properly
-        vec4 clip_pos = u_vp * vec4(hit, 1.0);
-        gl_FragDepth = (clip_pos.z / clip_pos.w) * 0.5 + 0.5;
 
         vec3 line_color = vec3(0.3, 0.1, 0.50);
         frag_color = vec4(line_color, alpha);
@@ -368,7 +360,7 @@ void render_frame(){
 
     glViewport(0, 0, buf_w, buf_h);
     float aspect = (float)buf_w / (float)buf_h;
-    printf("buf=%dx%d aspect=%.3f\n", buf_w, buf_h, aspect);
+    //printf("buf=%dx%d aspect=%.3f\n", buf_w, buf_h, aspect);
 
     // --- Clear and draw ---
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
@@ -413,15 +405,24 @@ void render_frame(){
     glDepthMask(GL_FALSE);
     
 
+    // --- Grid first: opaque-ish floor with blending, depth writes ON ---
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     glUseProgram(grid_program);
     glUniformMatrix4fv(grid_u_inv_vp_loc, 1, GL_FALSE, inv_vp);
-    glUniformMatrix4fv(grid_u_vp_loc, 1, GL_FALSE, mvp);
     glUniform3f(grid_u_cam_pos_loc, eye_x, eye_y, eye_z);
     glBindVertexArray(grid_vao);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 
-    glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
+
+    // --- Sphere second: renders on top with normal depth test ---
+    glUseProgram(shader_program);
+    glUniformMatrix4fv(u_mvp_loc, 1, GL_FALSE, mvp);
+    glUniform3f(u_cam_pos_loc, eye_x, eye_y, eye_z);
+    glBindVertexArray(vao);
+    glDrawElements(GL_TRIANGLES, mesh_index_count, GL_UNSIGNED_INT, 0);
 
 
 }
@@ -680,7 +681,6 @@ void initialize_graphics(){
     grid_u_mvp_loc = glGetUniformLocation(grid_program, "u_mvp");
 
     grid_u_inv_vp_loc  = glGetUniformLocation(grid_program, "u_inv_vp");
-    grid_u_vp_loc = glGetUniformLocation(grid_program, "u_vp");
     grid_u_cam_pos_loc = glGetUniformLocation(grid_program, "u_cam_pos");
 
 
