@@ -476,9 +476,10 @@ void render_frame(){
     // FPS smoothing — exponential moving average
     double instant_fps = 1.0 / (dt > 0.0001 ? dt : 0.0001);
     fps_smoothed = fps_smoothed * 0.95 + instant_fps * 0.05;
+    //printf("dt=%.4f instant_fps=%.1f smoothed=%.1f\n", dt, instant_fps, fps_smoothed);
 
     // Update text every 250ms (avoid jittery readout)
-    if (now - fps_last_update > 250.0) {
+    if (now - fps_last_update > 1200.0) {
         snprintf(fps_text, sizeof(fps_text), "RENDER · %dFPS", (int)(fps_smoothed + 0.5));
         fps_last_update = now;
     }

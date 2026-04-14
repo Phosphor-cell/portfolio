@@ -50,24 +50,38 @@
                 document.querySelector('.mode-buttons').dataset.active = m;
             }
         </script>
-        <script src="viewer.js">
-            function updateStatus() {
-                if (window.Module && Module._get_fps) {
-                    const fps = Module._get_fps();
-                    const label = document.querySelector('.status-label');
-                    const dot = document.querySelector('.status-dot');
-                    
-                    if (label) label.textContent = `RENDER · ${fps}FPS`;
-                    
-                    if (dot) {
-                        if (fps >= 55)      dot.style.background = '#9d8b6c';  // warm bronze, healthy
-                        else if (fps >= 30) dot.style.background = '#a8845c';  // amber-bronze, okay
-                        else                dot.style.background = '#a86855';  // muted terracotta, strained
+        <script>
+            var Module = {
+                onRuntimeInitialized: function() {
+                    function updateStatus() {
+                        const fps = Module._get_fps();
+                        const label = document.querySelector('.status-label');
+                        const dot = document.querySelector('.status-dot');
+                        
+                        if (label) label.textContent = `RENDER · ${fps}FPS`;
+                        
+                        if (dot) {
+                            if (fps >= 55)      dot.style.background = '#9d8b6c';
+                            else if (fps >= 30) dot.style.background = '#a8845c';
+                            else                dot.style.background = '#a86855';
+                        }
+                        
+                        requestAnimationFrame(updateStatus);
                     }
+                    requestAnimationFrame(updateStatus);
                 }
-                requestAnimationFrame(updateStatus);
+            };
+            
+            function setMode(m) {
+                if (window.Module && Module._set_mode) {
+                    Module._set_mode(m);
+                }
+                document.querySelectorAll('.mode-buttons button').forEach((b, i) => {
+                    b.classList.toggle('active', i === m);
+                });
+                document.querySelector('.mode-buttons').dataset.active = m;
             }
-            requestAnimationFrame(updateStatus);
         </script>
+        <script src="viewer.js"></script>
     </body>
 </html>
