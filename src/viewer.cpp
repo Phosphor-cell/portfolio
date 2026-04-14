@@ -211,9 +211,9 @@ const char* fragment_shader_source = R"glsl(#version 300 es
     vec3 shade_curvature(){
         float t = clamp(v_curvature * 0.5 + 0.5, 0.0, 1.0);
     
-        vec3 neg_color = vec3(0.08, 0.09, 0.10);
-        vec3 mid_color = vec3(0.55, 0.55, 0.55);
-        vec3 pos_color = vec3(0.95, 0.93, 0.88);
+        vec3 neg_color = vec3(0.10, 0.09, 0.08);   // near-black with warm cast
+        vec3 mid_color = vec3(0.42, 0.40, 0.37);   // matches titanium base from surface mode
+        vec3 pos_color = vec3(0.92, 0.78, 0.52);   // bronze highlight, matches active button pill
         vec3 base;
         if (t < 0.5) base = mix(neg_color, mid_color, t * 2.0);
         else         base = mix(mid_color, pos_color, (t - 0.5) * 2.0);
@@ -221,8 +221,8 @@ const char* fragment_shader_source = R"glsl(#version 300 es
         vec3 N = normalize(v_normal);
         vec3 V = normalize(u_cam_pos - v_world_pos);
         float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-        vec3 rim_tint = vec3(0.65, 0.80, 0.95);
-        vec3 warm_shift = vec3(1.0, 0.85, 0.70);
+        vec3 rim_tint = vec3(0.42, 0.36, 0.30);   // deep warm umber for low curvature
+        vec3 warm_shift = vec3(1.0, 0.78, 0.45);  // bright bronze for high curvature
         vec3 chromatic = mix(rim_tint, warm_shift, t);
         vec3 color = mix(base, base * chromatic, fresnel * 0.6);
     
@@ -513,9 +513,10 @@ void render_frame(){
     glUseProgram(shader_program);
     glUniform1i(u_mode_loc, current_mode);
     double elapsed = emscripten_get_now() - mode_change_time;
-    float blend = (float)fmin(elapsed / 500.0, 1.0);  // 500ms transition
-    // Smooth cubic ease
-    blend = blend * blend * (3.0f - 2.0f * blend);
+    float blend = (float)fmin(elapsed / 330.0, 1.0);  // 320ms — matches CSS pill
+    // Quintic ease-out — matches cubic-bezier(0.22, 1, 0.36, 1)
+    float inv = 1.0f - blend;
+    blend = 1.0f - inv * inv * inv * inv * inv;
     glUniform1i(u_prev_mode_loc, prev_mode);
     glUniform1f(u_mode_blend_loc, blend);
     glUniformMatrix4fv(u_mvp_loc, 1, GL_FALSE, mvp);

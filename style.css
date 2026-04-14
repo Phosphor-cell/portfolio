@@ -31,27 +31,18 @@ body {
     position: relative;
     box-sizing: border-box;
     width: clamp(280px, 22vw, 360px);
-    padding: 48px 32px 32px;
+    padding: 48px 56px 32px 32px;
     flex-shrink: 0;
     overflow-y: auto;
-    background: #1c1b1f;
-    border-left: 1px solid #2a2830;
-}
-
-#panel::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 1px;
-    height: 40%;
     background: linear-gradient(
-        to bottom,
-        transparent,
-        rgba(184, 153, 104, 0.25),
-        transparent
+        to right,
+        rgba(20, 19, 22, 0.85) 0%,
+        rgba(20, 19, 22, 0.85) 70%,
+        rgba(20, 19, 22, 0) 100%
     );
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-left: none;
 }
 
 #panel h1 {
@@ -95,8 +86,8 @@ body {
     gap: 0;
     margin: 24px 0 28px;
     padding: 4px;
-    background: #141316;
-    border-radius: 1px;
+    background: rgba(20, 19, 22, 0.6);
+    border-radius: 4px;
     border: 1px solid #2a2830;
 }
 
@@ -107,10 +98,15 @@ body {
     left: 4px;
     width: calc((100% - 8px) / 3);
     height: calc(100% - 8px);
-    background: #2a2830;
-    border-radius: 2px;
-    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    background: linear-gradient(135deg, #b89968 0%, #c9a87a 50%, #8a6f48 100%);
+    border-radius: 3px;
+    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
     z-index: 0;
+    mix-blend-mode: lighten;
+    box-shadow: 
+        0 0 0 1px rgba(184, 153, 104, 0.2),
+        0 2px 12px rgba(184, 153, 104, 0.15);
+    
 }
 
 .mode-buttons[data-active="1"]::before { transform: translateX(100%); }
@@ -120,31 +116,28 @@ body {
     flex: 1;
     position: relative;
     z-index: 1;
-    padding: 8px 10px;
+    padding: 9px 10px;
     background: transparent;
     border: none;
     color: #8a8780;
     font-size: 12px;
     font-weight: 500;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.04em;
     cursor: pointer;
-    border-radius: 2px;
-    transition: color 0.18s ease-out;
+    border-radius: 3px;
+    transition: all 0.32s cubic-bezier(0.22, 1, 0.36, 1);
     font-family: inherit;
+    overflow: hidden;
 }
 
 .mode-buttons button:hover {
     color: #d8d5d0;
-    border-bottom-color: #b89968;
-
 }
 
-.mode-buttons button:active {
-    transform: scale(0.96);
-    transition: transform 0.08s ease-out;
-    color: #c9a87a;  /* slightly lighter bronze for text legibility */
-
-
+.mode-buttons button.active {
+    color: #1a1816;
+    font-weight: 600;
+    text-shadow: 0 0 1px rgba(255, 220, 160, 0.3);
 }
 
 /* Section labels */
