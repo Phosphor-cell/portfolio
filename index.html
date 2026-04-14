@@ -5,30 +5,56 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Dev Bhatt</title>
         <link rel="stylesheet" href="style.css">
+        <link rel="preconnect" href="https://api.fontshare.com">
+        <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap" rel="stylesheet">
+        <link href="https://api.fontshare.com/v2/css?f[]=young-serif@400&display=swap" rel="stylesheet">
+
     </head>
 
     <body>
         <aside id="panel">
-            <h1>Dev Bhatt</h1>
-            <p class="role">Founder, <a href="https://shapesynth.com">ShapeSynth</a></p>
-            <p class="pitch">A real-time mesh viewer written from scratch in C++ and GLSL,
-            compiled to WebAssembly. No Three.js, no engine — every pixel
-            is hand-authored graphics code.</p>
+    <h1>Dev Bhatt</h1>
+    <p class="role">Founder, <a href="https://shapesynth.com">ShapeSynth</a></p>
+    <p class="pitch">A real-time mesh viewer written from scratch in C++ and GLSL, compiled to WebAssembly. No Three.js, no engine — every pixel is hand-authored graphics code.</p>
 
-            <div class="probe-wrap">
-                <span class="probe-label">Click and Drag the mesh</span>
-                <div class="probe" id="probe">—</div>
-            </div>
+    <p class="section-label">Shading Mode</p>
+    <div class="mode-buttons" data-active="0" >
+        <button id="btn-damascus" class="active" onclick="setMode(0)">Damascus</button>
+        <button id="btn-curvature" onclick="setMode(1)">Curvature</button>
+        <button id="btn-iso" onclick="setMode(2)">Isolines</button>
+    </div>
+    <script>
+        function setMode(m) {
+            // Tell WASM about the mode change (triggers the shader transition)
+            if (window.Module && Module._set_mode) {
+                Module._set_mode(m);
+            }
 
-            <nav class="links">
-                <a href="mailto:">Email</a>
-                <a href="https://github.com/Phosphor-cell">GitHub</a>
-                <a href="/resume.pdf">Résumé</a>
-            </nav>
+            // Update button active states
+            const buttons = document.querySelectorAll('.mode-buttons button');
+            buttons.forEach((b, i) => {
+                b.classList.toggle('active', i === m);
+            });
 
-            <p class="footnote">No Three.js. No React. ~800 lines of C++.</p>
-        </aside>
-        <canvas id="viewport"></canvas>
+            // Slide the pill
+            document.querySelector('.mode-buttons').dataset.active = m;
+        }
+    </script>
+
+    <p class="section-label">Interaction</p>
+    <div class="probe-wrap">
+        <p class="hint">Drag to rotate · Scroll to zoom</p>
+    </div>
+
+    <nav class="links">
+        <a href="mailto:">Email</a>
+        <a href="https://github.com/Phosphor-cell">GitHub</a>
+        <a href="/resume.pdf">Résumé</a>
+    </nav>
+
+    <p class="footnote">No Three.js. No React. ~950 lines of C++.</p>
+</aside>
+        <canvas id="viewport"></canvas> 
         <script src="viewer.js"></script>
     </body>
 </html>

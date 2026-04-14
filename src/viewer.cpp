@@ -25,15 +25,19 @@ GLint grid_u_inv_vp_loc = -1;
 GLint grid_u_cam_pos_loc = -1;
 GLint grid_u_mvp_loc = -1;
 
+int current_mode = 0;
+GLint u_mode_loc = -1;
+GLint grid_u_mesh_radius_sq_loc = -1;
 
 float* mesh_positions = nullptr;
 float* mesh_normals = nullptr;
+float* mesh_curvature = nullptr;
 unsigned int* mesh_indices = nullptr;
 int mesh_vertex_count = 0;
 int mesh_index_count = 0;
+float mesh_bound_radius = 1.0f;
 GLuint ebo = 0;
 GLuint nbo = 0;
-
 
 
 float cam_theta = 0.0f;
@@ -43,6 +47,10 @@ float cam_dist = 5.0f;
 
 bool dragging = false;
 int last_x = 0, last_y=0;
+
+
+extern "C" EMSCRIPTEN_KEEPALIVE void set_mode(int m) { current_mode = m; }
+
 
 
 float triangle_vertices[] = {
@@ -57,71 +65,39 @@ float triangle_vertices[] = {
 
 const char* grid_vertex_shader_source = R"glsl(#version 300 es
     precision highp float;
-    out vec2 v_clip;
-
+    layout(location = 0) in vec3 a_position;
+    uniform mat4 u_mvp;
+    out vec3 v_world_pos;
     void main() {
-        vec2 positions[6] = vec2[](
-            vec2(-1.0, -1.0),
-            vec2( 1.0, -1.0),
-            vec2( 1.0,  1.0),
-            vec2(-1.0, -1.0),
-            vec2( 1.0,  1.0),
-            vec2(-1.0,  1.0)
-        );
-        v_clip = positions[gl_VertexID];
-        gl_Position = vec4(v_clip, 0.0, 1.0);
+        v_world_pos = a_position;
+        gl_Position = u_mvp * vec4(a_position, 1.0);
     }
 )glsl";
 
 
 const char* grid_fragment_shader_source = R"glsl(#version 300 es
     precision highp float;
-
-    in vec2 v_clip;
-    uniform mat4 u_inv_vp;
+    in vec3 v_world_pos;
     uniform vec3 u_cam_pos;
-
     out vec4 frag_color;
 
     void main() {
-        vec4 world_far = u_inv_vp * vec4(v_clip, 1.0, 1.0);
-        world_far.xyz /= world_far.w;
-        vec3 ray_dir = normalize(world_far.xyz - u_cam_pos);
+        // Fade with distance from camera
+        float dist_from_cam = length(v_world_pos - u_cam_pos);
+        float fade = 1.0 - smoothstep(15.0, 30.0, dist_from_cam);
 
-        float plane_y = -1.0;
-        float t = (plane_y - u_cam_pos.y) / ray_dir.y;
-        if (t < 0.0) discard;
-
-        vec3 hit = u_cam_pos + t * ray_dir;
-
-        // Discard grid pixels occluded by the sphere at origin
-        vec3 oc = u_cam_pos;
-        float b = dot(oc, ray_dir);
-        float c = dot(oc, oc) - 0.98;  // sphere radius^2
-        float disc = b*b - c;
-        if (disc > 0.0) {
-            float t_sphere = -b - sqrt(disc);
-            if (t_sphere > 0.0 && t_sphere < t) discard;
-        }
-
-        vec2 grid_coord = hit.xz;
+        // Grid line computation — exactly same as before
+        vec2 grid_coord = v_world_pos.xz;
         vec2 deriv = fwidth(grid_coord);
         vec2 f = fract(grid_coord);
         vec2 dist_to_line = min(f, 1.0 - f) / deriv;
         float line_dist = min(dist_to_line.x, dist_to_line.y);
         float line = 1.0 - smoothstep(0.0, 1.5, line_dist);
 
-        float dist_from_cam = length(hit - u_cam_pos);
-        float fade_start = 15.0;
-        float fade_end   = 30.0;
-
-        float fade = 1.0 - smoothstep(fade_start, fade_end, dist_from_cam);
-
-
         float alpha = line * fade;
         if (alpha < 0.01) discard;
 
-        vec3 line_color = vec3(0.3, 0.1, 0.50);
+        vec3 line_color = vec3(0.25, 0.55, 0.60);   // muted teal, matches isolines
         frag_color = vec4(line_color, alpha);
     }
 )glsl";
@@ -130,13 +106,16 @@ const char* vertex_shader_source = R"glsl(#version 300 es
     precision highp float;
     layout(location = 0 ) in vec3 a_position;
     layout(location = 1) in vec3 a_normal;
+    layout(location = 2) in float a_curvature;
     uniform mat4 u_mvp;
     out vec3 v_world_pos;
     out vec3 v_normal;
+    out float v_curvature;
     void main(){
         v_world_pos = a_position;
         v_normal = a_normal;
         gl_Position = u_mvp*vec4(a_position, 1.0);
+        v_curvature = a_curvature;
     }
 )glsl";
 
@@ -144,6 +123,8 @@ const char* fragment_shader_source = R"glsl(#version 300 es
     precision highp float;
     in vec3 v_world_pos;
     in vec3 v_normal;
+    in float v_curvature;
+    uniform int u_mode;
     uniform vec3 u_cam_pos;
     out vec4 frag_color;
 
@@ -169,6 +150,86 @@ const char* fragment_shader_source = R"glsl(#version 300 es
     }
 
     void main(){
+
+        if (u_mode == 1) {
+            float t = clamp(v_curvature * 0.5 + 0.5, 0.0, 1.0);
+
+            vec3 neg_color = vec3(0.08, 0.09, 0.10);
+            vec3 mid_color = vec3(0.55, 0.55, 0.55);
+            vec3 pos_color = vec3(0.95, 0.93, 0.88);
+
+            vec3 base;
+            if (t < 0.5) base = mix(neg_color, mid_color, t * 2.0);
+            else         base = mix(mid_color, pos_color, (t - 0.5) * 2.0);
+
+            // Fresnel — 0 when looking straight at surface, 1 at grazing angles
+            vec3 N = normalize(v_normal);
+            vec3 V = normalize(u_cam_pos - v_world_pos);
+            float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+
+            // Subtle cool-shift at rim — shifts toward pale blue-green
+            vec3 rim_tint = vec3(0.65, 0.80, 0.95);
+
+            // Also add a faint warm shift based on curvature — high curvature = warmer rim
+            vec3 warm_shift = vec3(1.0, 0.85, 0.70);
+            vec3 chromatic = mix(rim_tint, warm_shift, t);
+
+            // Apply rim tint only at grazing angles, muted
+            vec3 color = mix(base, base * chromatic, fresnel * 0.6);
+
+            // Gentle specular highlight to suggest polish
+            vec3 L = normalize(vec3(0.6, 0.8, 0.4));
+            vec3 H = normalize(L + V);
+            float spec = pow(max(dot(N, H), 0.0), 80.0);
+            color += vec3(0.15) * spec;
+
+            frag_color = vec4(color, 1.0);
+            return;
+        }
+
+        if (u_mode == 2) {
+            // Isolines at regular intervals of curvature
+            // In the isoline mode branch
+            float freq = 8.0;
+            float scaled = v_curvature * freq;
+            float deriv = fwidth(scaled);
+            
+            // Major lines — every integer
+            float f1 = fract(scaled);
+            float d1 = min(f1, 1.0 - f1) / max(deriv, 0.0001);
+            float major = 1.0 - smoothstep(0.0, 1.5, d1);
+            
+            // Minor lines — every 0.25, much fainter
+            float scaled_minor = scaled * 4.0;
+            float f2 = fract(scaled_minor);
+            float d2 = min(f2, 1.0 - f2) / max(deriv * 4.0, 0.0001);
+            float minor = 1.0 - smoothstep(0.0, 1.5, d2);
+            
+            // Base = your monochrome colormap (reuse the t calculation)
+            float t = clamp(v_curvature * 0.5 + 0.5, 0.0, 1.0);
+            vec3 base;
+            if (t < 0.5) base = mix(vec3(0.08, 0.09, 0.10), vec3(0.55, 0.55, 0.55), t * 2.0);
+            else         base = mix(vec3(0.55, 0.55, 0.55), vec3(0.95, 0.93, 0.88), (t - 0.5) * 2.0);
+            
+            // Subtle lighting for shape readability
+            vec3 N = normalize(v_normal);
+            vec3 L = normalize(vec3(0.6, 0.8, 0.4));
+            float diffuse = 0.5 + 0.5 * max(dot(N, L), 0.0);
+            base *= diffuse;
+            
+            // Line colors — bright teal for major, muted teal for minor
+            vec3 major_color = vec3(0.40, 0.85, 0.90);
+            vec3 minor_color = vec3(0.25, 0.50, 0.55);
+            
+            // Composite: base surface, then minor lines, then major lines on top
+            vec3 color = base;
+            color = mix(color, minor_color, minor * 0.4);
+            color = mix(color, major_color, major * 0.85);
+            
+            frag_color = vec4(color, 1.0);
+            return;
+        }
+
         vec3 N = normalize(v_normal);
         vec3 V = normalize(u_cam_pos - v_world_pos);
         vec3 L = normalize(vec3(0.6, 0.8, 0.4));
@@ -410,22 +471,23 @@ void render_frame(){
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
     glUseProgram(shader_program);
+    glUniform1i(u_mode_loc, current_mode);
     glUniformMatrix4fv(u_mvp_loc, 1, GL_FALSE, mvp);
     glUniform3f(u_cam_pos_loc, eye_x, eye_y, eye_z);
     glBindVertexArray(vao);
     glDrawElements(GL_TRIANGLES, mesh_index_count, GL_UNSIGNED_INT, 0);
 
     // Grid on top, blended, no depth write
+    // Grid — test against mesh depth, don't write depth, discard non-line pixels
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     glUseProgram(grid_program);
-    glUniformMatrix4fv(grid_u_inv_vp_loc, 1, GL_FALSE, inv_vp);
+    glUniformMatrix4fv(grid_u_mvp_loc, 1, GL_FALSE, mvp);
     glUniform3f(grid_u_cam_pos_loc, eye_x, eye_y, eye_z);
     glBindVertexArray(grid_vao);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    glDepthMask(GL_TRUE);
-    glDisable(GL_BLEND);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
 
 }
@@ -473,6 +535,135 @@ EM_BOOL on_wheel(int type, const EmscriptenWheelEvent* e, void* ud){
     if(cam_dist > 50.0f) cam_dist = 50.0f;
 
     return EM_TRUE;
+}
+
+void compute_mean_curvature(){
+    mesh_curvature = (float*)malloc(mesh_vertex_count*sizeof(float));
+    
+    float* curvature_vec = (float*)calloc(mesh_vertex_count*3, sizeof(float));
+    float* vertex_area = (float*)calloc(mesh_vertex_count, sizeof(float));
+
+    for (int i = 0; i < mesh_index_count; i += 3){
+        unsigned int i0 = mesh_indices[i];
+        unsigned int i1 = mesh_indices[i+1];
+        unsigned int i2 = mesh_indices[i+2];
+
+        float* p0 = &mesh_positions[i0*3];
+        float* p1 = &mesh_positions[i1*3];
+        float* p2 = &mesh_positions[i2*3];
+
+        //the edges of the triangle
+
+        float e0x = p2[0]-p1[0], e0y = p2[1]-p1[1], e0z = p2[2]-p1[2];
+        float e1x = p0[0]-p2[0], e1y = p0[1]-p2[1], e1z = p0[2]-p2[2];
+        float e2x = p1[0]-p0[0], e2y = p1[1]-p0[1], e2z = p1[2]-p0[2];
+
+        float nx = e1y*e2z - e1z*e2y;
+        float ny = e1z*e2x - e1x*e2z;
+        float nz = e1x*e2y - e1y*e2x;
+        float area = 0.5f * sqrtf(nx*nx + ny*ny + nz*nz);
+        float two_area = area*2;
+
+        // Sanity check for the first triangle
+        if (i == 0) {
+            printf("tri 0: area=%f, edges: e0=(%.2f,%.2f,%.2f) e1=(%.2f,%.2f,%.2f) e2=(%.2f,%.2f,%.2f)\n",
+                   area, e0x,e0y,e0z, e1x,e1y,e1z, e2x,e2y,e2z);
+        }
+
+        float dot0 = -(e1x*e2x + e1y*e2y + e1z*e2z);
+        float dot1 = -(e2x*e0x + e2y*e0y + e2z*e0z);
+        float dot2 = -(e0x*e1x + e0y*e1y + e0z*e1z);
+
+        float cot0 = dot0/two_area;
+        float cot1 = dot1/two_area;
+        float cot2 = dot2/two_area;
+
+        if(cot0 > 1e4f) cot0 = 1e4f; if(cot0 < -1e4f) cot0 = -1e4f;
+        if(cot1 > 1e4f) cot1 = 1e4f; if(cot1 < -1e4f) cot1 = -1e4f;
+        if(cot2 > 1e4f) cot2 = 1e4f; if(cot2 < -1e4f) cot2 = -1e4f;
+
+        // Edge e0 (from p1 to p2), weight cot0
+        curvature_vec[i1*3+0] += cot0 * e0x;
+        curvature_vec[i1*3+1] += cot0 * e0y;
+        curvature_vec[i1*3+2] += cot0 * e0z;
+        curvature_vec[i2*3+0] -= cot0 * e0x;
+        curvature_vec[i2*3+1] -= cot0 * e0y;
+        curvature_vec[i2*3+2] -= cot0 * e0z;
+
+        // Edge e1 (from p2 to p0), weight cot1
+        curvature_vec[i2*3+0] += cot1 * e1x;
+        curvature_vec[i2*3+1] += cot1 * e1y;
+        curvature_vec[i2*3+2] += cot1 * e1z;
+        curvature_vec[i0*3+0] -= cot1 * e1x;
+        curvature_vec[i0*3+1] -= cot1 * e1y;
+        curvature_vec[i0*3+2] -= cot1 * e1z;
+
+        // Edge e2 (from p0 to p1), weight cot2
+        curvature_vec[i0*3+0] += cot2 * e2x;
+        curvature_vec[i0*3+1] += cot2 * e2y;
+        curvature_vec[i0*3+2] += cot2 * e2z;
+        curvature_vec[i1*3+0] -= cot2 * e2x;
+        curvature_vec[i1*3+1] -= cot2 * e2y;
+        curvature_vec[i1*3+2] -= cot2 * e2z;
+
+        // Vertex area: uniform split, each vertex gets area/3
+        vertex_area[i0] += area / 3.0f;
+        vertex_area[i1] += area / 3.0f;
+        vertex_area[i2] += area / 3.0f;
+    }
+
+    for (int v =0; v < mesh_vertex_count; v++){
+        float denom = 2.0f * vertex_area[v];
+
+        if (denom < 1e-8f) {mesh_curvature[v] = 0.0f; continue;}
+
+        //Divide acculumated vector by 2 * area
+        float hx = curvature_vec[v*3+0] / denom;
+        float hy = curvature_vec[v*3+1] / denom;
+        float hz = curvature_vec[v*3+2] / denom;
+
+        //Project ont vertex normal to get signed scalar
+        float* n = &mesh_normals[v*3];
+        float H = hx*n[0] + hy*n[1] + hz*n[2];
+
+        mesh_curvature[v] = H;
+    }
+
+    float min_H = 1e20f, max_H = -1e20f;
+    for (int v = 0; v < mesh_vertex_count; v++) {
+        if (mesh_curvature[v] < min_H) min_H = mesh_curvature[v];
+        if (mesh_curvature[v] > max_H) max_H = mesh_curvature[v];
+    }
+    printf("curvature range before normalize: [%f, %f]\n", min_H, max_H);
+
+    
+    // Symmetric normalization around zero so sign is preserved
+    float max_abs = fmaxf(fabsf(min_H), fabsf(max_H));
+    if (max_abs > 1e-8f) {
+        for (int v = 0; v < mesh_vertex_count; v++) {
+            mesh_curvature[v] /= max_abs;
+        }
+    }
+
+    // Flip sign so convex = positive (matches convention)
+    for (int v = 0; v < mesh_vertex_count; v++) {
+        mesh_curvature[v] = -mesh_curvature[v];
+    }
+
+    // Debug: print curvature at a few vertices
+    printf("curvature sample: v0=%.4f v1=%.4f v100=%.4f\n", mesh_curvature[0], mesh_curvature[1], mesh_vertex_count > 100 ? mesh_curvature[100] : 0.0f);
+    printf("curvature vec: v0=%.4f v1=%.4f v2=%.4f\n", curvature_vec[3], curvature_vec[4], curvature_vec[5]);
+    printf("mesh_normals: v0=%.4f v1=%.4f v2=%.4f\n", mesh_normals[3], mesh_normals[4], mesh_normals[5]);
+
+
+
+
+
+
+    free(curvature_vec);
+    free(vertex_area);
+
+    
 }
 
 
@@ -547,6 +738,16 @@ void normalize_mesh_bounds() {
         mesh_positions[i*3+2] = (mesh_positions[i*3+2] - cz) * scale;
     }
 
+    mesh_bound_radius = 0.0f;
+    for (int v = 0; v < mesh_vertex_count; v++) {
+        float x = mesh_positions[v*3+0];
+        float y = mesh_positions[v*3+1];
+        float z = mesh_positions[v*3+2];
+        float r = sqrtf(x*x + y*y + z*z);
+        if (r > mesh_bound_radius) mesh_bound_radius = r;
+    }
+    printf("bound radius: %f\n", mesh_bound_radius);
+
     printf("Normalized: extents were (%.2f, %.2f, %.2f), scale=%.3f\n", ex, ey, ez, scale);
 }
 
@@ -573,7 +774,7 @@ bool load_obj(const char* path) {
     }
 
     // --- Free any previous mesh ---
-    free(mesh_positions); free(mesh_normals); free(mesh_indices);
+    free(mesh_positions); free(mesh_normals); free(mesh_indices); free(mesh_curvature);
     mesh_positions = (float*)malloc(v_count * 3 * sizeof(float));
     mesh_indices = (unsigned int*)malloc(tri_count * 3 * sizeof(unsigned int));
     mesh_index_count = tri_count * 3;
@@ -624,8 +825,11 @@ bool load_obj(const char* path) {
     }
     fclose(f);
 
-    compute_smooth_normals();
     normalize_mesh_bounds();
+    compute_smooth_normals();
+    compute_mean_curvature();    
+
+
     printf("Loaded %s: %d verts, %d tris\n", path, v_count, tri_count);
     return true;
 }
@@ -649,6 +853,8 @@ void initialize_graphics(){
 
     u_mvp_loc = glGetUniformLocation(shader_program, "u_mvp");
     u_cam_pos_loc = glGetUniformLocation(shader_program, "u_cam_pos");
+    u_mode_loc = glGetUniformLocation(shader_program, "u_mode");
+
 
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
@@ -658,12 +864,19 @@ void initialize_graphics(){
     //glBufferData(GL_ARRAY_BUFFER, sizeof(triangle_vertices), triangle_vertices, GL_STATIC_DRAW);
     //glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     //glEnableVertexAttribArray(0);
-    if(!load_obj("meshes/sphere.obj")) return;
+    if(!load_obj("meshes/Suzanne.obj")) return;
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, mesh_vertex_count*3*sizeof(float), mesh_positions, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+
+    GLuint cbo;
+    glGenBuffers(1, &cbo);
+    glBindBuffer(GL_ARRAY_BUFFER, cbo);
+    glBufferData(GL_ARRAY_BUFFER, mesh_vertex_count * sizeof(float), mesh_curvature, GL_STATIC_DRAW);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
+    glEnableVertexAttribArray(2);
 
     glGenBuffers(1, &nbo);
     glBindBuffer(GL_ARRAY_BUFFER, nbo);
@@ -675,15 +888,38 @@ void initialize_graphics(){
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh_index_count*sizeof(unsigned int), mesh_indices, GL_STATIC_DRAW);
 
+    // In initialize_graphics, replacing the empty grid_vao setup:
+    float grid_verts[] = {
+        -50.0f, -1.0f, -50.0f,
+         50.0f, -1.0f, -50.0f,
+         50.0f, -1.0f,  50.0f,
+        -50.0f, -1.0f,  50.0f,
+    };
+    unsigned int grid_idx[] = { 0, 1, 2, 0, 2, 3 };
+
     glGenVertexArrays(1, &grid_vao);
+    glBindVertexArray(grid_vao);
+
+    GLuint grid_vbo, grid_ebo;
+    glGenBuffers(1, &grid_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, grid_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(grid_verts), grid_verts, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glGenBuffers(1, &grid_ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, grid_ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(grid_idx), grid_idx, GL_STATIC_DRAW);
+
     GLuint gvs = compile_shader(GL_VERTEX_SHADER, grid_vertex_shader_source);
     GLuint gfs = compile_shader(GL_FRAGMENT_SHADER, grid_fragment_shader_source);
 
     grid_program = link_program(gvs,gfs);
 
     grid_u_mvp_loc = glGetUniformLocation(grid_program, "u_mvp");
+    grid_u_mesh_radius_sq_loc = glGetUniformLocation(grid_program, "u_mesh_radius_sq");
 
-    grid_u_inv_vp_loc  = glGetUniformLocation(grid_program, "u_inv_vp");
+    //grid_u_inv_vp_loc  = glGetUniformLocation(grid_program, "u_inv_vp");
     grid_u_cam_pos_loc = glGetUniformLocation(grid_program, "u_cam_pos");
 
 
