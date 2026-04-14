@@ -18,6 +18,7 @@ GLint u_mvp_loc = -1;
 
 GLint u_cam_pos_loc = -1;
 
+GLuint cross_vao = 0, cross_vbo = 0;
 
 GLuint grid_program = 0;
 GLuint grid_vao = 0;
@@ -40,6 +41,20 @@ float mesh_bound_radius = 1.0f;
 GLuint ebo = 0;
 GLuint nbo = 0;
 
+float* cross_line_vertices = nullptr;
+int cross_line_count = 0;
+
+float* mesh_e1 = nullptr;
+float* mesh_e2 = nullptr;
+int* mesh_singularity = nullptr;
+
+GLuint cross_program = 0;
+GLint cross_u_mvp_loc = -1;
+
+int field_lic_enabled = 1;      // default: LIC on
+int field_crosses_enabled = 0;  // default: crosses off
+GLint u_field_lic_enabled_loc = -1;
+
 
 int prev_mode = 0;
 double mode_change_time = 0.0;
@@ -60,7 +75,6 @@ double fps_smoothed = 60.0;
 double fps_last_update = 0.0f;
 char fps_text[32];
 
-
 extern "C" EMSCRIPTEN_KEEPALIVE int get_fps() {
     return (int)(fps_smoothed + 0.5);
 }
@@ -70,6 +84,22 @@ extern "C" EMSCRIPTEN_KEEPALIVE void set_mode(int m) {
     prev_mode = current_mode;
     current_mode = m;
     mode_change_time = emscripten_get_now();
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void set_field_lic(int enabled) {
+    field_lic_enabled = enabled ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void set_field_crosses(int enabled) {
+    field_crosses_enabled = enabled ? 1 : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int get_field_lic() {
+    return field_lic_enabled;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int get_field_crosses() {
+    return field_crosses_enabled;
 }
 
 
@@ -82,6 +112,28 @@ float triangle_vertices[] = {
     0.5f, -0.5f, 0.0f, //bottom right
 
 };
+
+const char* cross_vertex_shader_source = R"glsl(#version 300 es
+    precision highp float;
+    layout(location = 0) in vec3 a_position;
+    uniform mat4 u_mvp;
+    void main() {
+        gl_Position = u_mvp * vec4(a_position, 1.0);
+    }
+)glsl";
+
+const char* cross_fragment_shader_source = R"glsl(#version 300 es
+    precision highp float;
+    in vec3 v_e1;
+    in vec3 v_e2;
+    out vec4 frag_color;
+    // New varyings (interpolated from vertex shader)
+    void main() {
+        // Bronze color matching your palette
+        frag_color = vec4(0.95, 0.78, 0.45, 1.0);
+    }
+)glsl";
+
 
 const char* grid_vertex_shader_source = R"glsl(#version 300 es
     precision highp float;
@@ -124,23 +176,31 @@ const char* grid_fragment_shader_source = R"glsl(#version 300 es
 //Shader information and positions
 const char* vertex_shader_source = R"glsl(#version 300 es
     precision highp float;
-    layout(location = 0 ) in vec3 a_position;
+    layout(location = 0) in vec3 a_position;
     layout(location = 1) in vec3 a_normal;
     layout(location = 2) in float a_curvature;
+    layout(location = 3) in vec3 a_e1;
+    layout(location = 4) in vec3 a_e2;
     uniform mat4 u_mvp;
     out vec3 v_world_pos;
     out vec3 v_normal;
     out float v_curvature;
+    out vec3 v_e1;
+    out vec3 v_e2;
     void main(){
         v_world_pos = a_position;
         v_normal = a_normal;
-        gl_Position = u_mvp*vec4(a_position, 1.0);
         v_curvature = a_curvature;
+        v_e1 = a_e1;
+        v_e2 = a_e2;
+        gl_Position = u_mvp*vec4(a_position, 1.0);
     }
 )glsl";
 
 const char* fragment_shader_source = R"glsl(#version 300 es
     precision highp float;
+    in vec3 v_e1;
+    in vec3 v_e2;
     in vec3 v_world_pos;
     in vec3 v_normal;
     in float v_curvature;
@@ -148,6 +208,7 @@ const char* fragment_shader_source = R"glsl(#version 300 es
     uniform vec3 u_cam_pos;
     uniform int u_prev_mode;
     uniform float u_mode_blend;
+    uniform int u_field_lic_enabled;
     out vec4 frag_color;
 
     float damascus(vec3 p) {
@@ -258,15 +319,64 @@ const char* fragment_shader_source = R"glsl(#version 300 es
         float diffuse = 0.5 + 0.5 * max(dot(N, L), 0.0);
         base *= diffuse;
     
-        vec3 major_color = vec3(0.78, 0.62, 0.40);
-        vec3 minor_color = vec3(0.45, 0.36, 0.24);
+        vec3 major_color = vec3(1.0, 0.85, 0.55);   // keep the bright gold-bronze
+        vec3 minor_color = vec3(0.55, 0.44, 0.28);  // dial minor back down
     
         vec3 color = base;
-        color = mix(color, minor_color, minor * 0.4);
-        color = mix(color, major_color, major * 0.85);
+        color = mix(color, minor_color, minor * 0.35);   // reduced from 0.55
+        color = mix(color, major_color, major * 0.65);   // reduced from 1.0
     
         return color;
     }   
+    
+    vec3 shade_field_lic() {
+
+        if (u_field_lic_enabled == 0) {
+            return shade_damascus();
+        }
+        vec3 e1 = normalize(v_e1);
+        vec3 e2 = normalize(v_e2);
+
+        float u = dot(v_world_pos, e1);
+        float v = dot(v_world_pos, e2);
+
+        float freq_primary = 80.0;
+        float stripe1 = sin(u * freq_primary);
+
+        float freq_secondary = 220.0;
+        float stripe2 = sin(u * freq_secondary) * 0.3;
+
+        float cross_var = sin(v * 50.0) * 0.15;
+
+        float stripe_value = stripe1 + stripe2 + cross_var;
+        stripe_value = 0.5 + 0.5 * stripe_value;
+        stripe_value = smoothstep(0.35, 0.65, stripe_value);
+
+        vec3 N = normalize(v_normal);
+        vec3 V = normalize(u_cam_pos - v_world_pos);
+        vec3 L = normalize(vec3(0.5, 0.8, 0.3));
+        vec3 H = normalize(L + V);
+
+        float NdotL = max(dot(N, L), 0.0);
+        float NdotV = max(dot(N, V), 0.0);
+        float NdotH = max(dot(N, H), 0.0);
+
+        vec3 dark_metal  = vec3(0.28, 0.26, 0.24);
+        vec3 bright_metal = vec3(0.58, 0.54, 0.48);
+        vec3 base = mix(dark_metal, bright_metal, stripe_value);
+
+        float diffuse = 0.35 + 0.65 * NdotL;
+        vec3 color = base * diffuse;
+
+        float spec = pow(NdotH, 32.0);
+        float spec_modulation = 0.4 + stripe_value * 0.6;
+        color += vec3(0.98, 0.88, 0.62) * spec * spec_modulation * 0.7;
+
+        float fresnel = pow(1.0 - NdotV, 4.0);
+        color += vec3(0.85, 0.70, 0.45) * fresnel * 0.25;
+
+        return color;
+    }
     
     
     float compute_local_blend(int target_mode, float global_blend) {
@@ -285,10 +395,11 @@ const char* fragment_shader_source = R"glsl(#version 300 es
     
 
     void main(){
-        vec3 modes[3];
+        vec3 modes[4];
         modes[0] = shade_damascus();
         modes[1] = shade_curvature();
         modes[2] = shade_isolines();
+        modes[3] = shade_field_lic();
         float local_blend = compute_local_blend(u_mode, u_mode_blend);
         local_blend = smoothstep(0.0, 1.0, local_blend);
 
@@ -520,10 +631,20 @@ void render_frame(){
     blend = 1.0f - inv * inv * inv * inv * inv;
     glUniform1i(u_prev_mode_loc, prev_mode);
     glUniform1f(u_mode_blend_loc, blend);
+    glUniform1i(u_field_lic_enabled_loc, field_lic_enabled);
     glUniformMatrix4fv(u_mvp_loc, 1, GL_FALSE, mvp);
     glUniform3f(u_cam_pos_loc, eye_x, eye_y, eye_z);
     glBindVertexArray(vao);
     glDrawElements(GL_TRIANGLES, mesh_index_count, GL_UNSIGNED_INT, 0);
+
+    // Draw crosses — only in Field mode (mode 3)
+    // Draw crosses — only in Field mode AND when the toggle is on
+    if ((current_mode == 3 || prev_mode == 3) && field_crosses_enabled) {
+        glUseProgram(cross_program);
+        glUniformMatrix4fv(cross_u_mvp_loc, 1, GL_FALSE, mvp);
+        glBindVertexArray(cross_vao);
+        glDrawArrays(GL_LINES, 0, cross_line_count);
+    }
 
     // Grid on top, blended, no depth write
     // Grid — test against mesh depth, don't write depth, discard non-line pixels
@@ -590,6 +711,14 @@ void compute_mean_curvature(){
     
     float* curvature_vec = (float*)calloc(mesh_vertex_count*3, sizeof(float));
     float* vertex_area = (float*)calloc(mesh_vertex_count, sizeof(float));
+
+
+    mesh_e1 = (float*)malloc(mesh_vertex_count*3*sizeof(float));
+    mesh_e2 = (float*)malloc(mesh_vertex_count*3*sizeof(float));
+    mesh_singularity = (int*)calloc(mesh_vertex_count, sizeof(int));
+    float arm_length = mesh_bound_radius*0.02f;
+
+
 
     for (int i = 0; i < mesh_index_count; i += 3){
         unsigned int i0 = mesh_indices[i];
@@ -675,6 +804,7 @@ void compute_mean_curvature(){
         float H = hx*n[0] + hy*n[1] + hz*n[2];
 
         mesh_curvature[v] = H;
+
     }
 
     float min_H = 1e20f, max_H = -1e20f;
@@ -696,7 +826,116 @@ void compute_mean_curvature(){
     // Flip sign so convex = positive (matches convention)
     for (int v = 0; v < mesh_vertex_count; v++) {
         mesh_curvature[v] = -mesh_curvature[v];
+
+
+        float* n = &mesh_normals[v*3];
+        float hx = curvature_vec[v*3+0];
+        float hy = curvature_vec[v*3+1];
+        float hz = curvature_vec[v*3+2];
+
+        float h_dot_n = hx*n[0] + hy*n[1] + hz*n[2];
+
+        float parallel_x = h_dot_n * n[0];
+        float parallel_y = h_dot_n * n[1];
+        float parallel_z = h_dot_n * n[2];
+
+        float tx = hx - parallel_x;
+        float ty = hy - parallel_y;
+        float tz = hz - parallel_z;
+
+        if (v < 3) {
+            float t_dot_n = tx*n[0] + ty*n[1] + tz*n[2];
+            printf("v%d t·n = %.6f (should be ~0)\n", v, t_dot_n);
+        }
+
+        float t_len = sqrtf(tx*tx + ty*ty + tz*tz);
+
+        if (t_len > 1e-6f) {
+            mesh_e1[v*3+0] = tx / t_len;
+            mesh_e1[v*3+1] = ty / t_len;
+            mesh_e1[v*3+2] = tz / t_len;
+        }else {
+    // Flat region: pick arbitrary tangent, we'll handle this properly below
+            mesh_e1[v*3+0] = 0.0f;
+            mesh_e1[v*3+1] = 0.0f;
+            mesh_e1[v*3+2] = 0.0f;
+        }
+
+        float* e1 = &mesh_e1[v*3];
+        mesh_e2[v*3+0] = n[1]*e1[2] - n[2]*e1[1];
+        mesh_e2[v*3+1] = n[2]*e1[0] - n[0]*e1[2];
+        mesh_e2[v*3+2] = n[0]*e1[1] - n[1]*e1[0];
+
+        if(v < 3){
+            float* e1v = &mesh_e1[v*3];
+            float* e2v = &mesh_e2[v*3];
+            float e1_len = sqrtf(e1v[0]*e1v[0] + e1v[1]*e1v[1] + e1v[2]*e1v[2]);
+            float e2_len = sqrtf(e2v[0]*e2v[0] + e2v[1]*e2v[1] + e2v[2]*e2v[2]);
+            float e1_dot_e2 = e1v[0]*e2v[0] + e1v[1]*e2v[1] + e1v[2]*e2v[2];
+            float e2_dot_n = e2v[0]*n[0] + e2v[1]*n[1] + e2v[2]*n[2];
+            printf("v%d |e1|=%.4f |e2|=%.4f e1·e2=%.6f e2·n=%.6f\n", v, e1_len, e2_len, e1_dot_e2, e2_dot_n);
+        }
+
+
     }
+
+    cross_line_count = mesh_vertex_count*8;
+    cross_line_vertices = (float*)malloc(cross_line_count*3*sizeof(float));
+
+    for (int v = 0; v < mesh_vertex_count; v++){
+        float* pos = &mesh_positions[v*3];
+        float* e1 = &mesh_e1[v*3];
+        float* e2 = &mesh_e2[v*3];
+
+        float* out = &cross_line_vertices[v*24];
+
+        float offset = mesh_bound_radius * 0.005f;
+        float* n = &mesh_normals[v*3];
+        float lifted_pos[3] = {
+            pos[0] + n[0] * offset,
+            pos[1] + n[1] * offset,
+            pos[2] + n[2] * offset
+        };
+
+        // Segment 1: pos → pos + e1*arm
+        out[0]  = lifted_pos[0];
+        out[1]  = lifted_pos[1];
+        out[2]  = lifted_pos[2];
+        out[3]  = lifted_pos[0] + e1[0] * arm_length;
+        out[4]  = lifted_pos[1] + e1[1] * arm_length;
+        out[5]  = lifted_pos[2] + e1[2] * arm_length;
+        
+        // Segmentlifted_pos 2: pos → pos - e1*arm
+        out[6]  = lifted_pos[0];
+        out[7]  = lifted_pos[1];
+        out[8]  = lifted_pos[2];
+        out[9]  = lifted_pos[0] - e1[0] * arm_length;
+        out[10] = lifted_pos[1] - e1[1] * arm_length;
+        out[11] = lifted_pos[2] - e1[2] * arm_length;
+        
+        // Segmentlifted_pos 3: pos → pos + e2*arm
+        out[12] = lifted_pos[0];
+        out[13] = lifted_pos[1];
+        out[14] = lifted_pos[2];
+        out[15] = lifted_pos[0] + e2[0] * arm_length;
+        out[16] = lifted_pos[1] + e2[1] * arm_length;
+        out[17] = lifted_pos[2] + e2[2] * arm_length;
+        
+        // Segmentlifted_pos 4: pos → pos - e2*arm
+        out[18] = lifted_pos[0];
+        out[19] = lifted_pos[1];
+        out[20] = lifted_pos[2];
+        out[21] = lifted_pos[0] - e2[0] * arm_length;
+        out[22] = lifted_pos[1] - e2[1] * arm_length;
+        out[23] = lifted_pos[2] - e2[2] * arm_length;
+
+    }
+
+
+
+
+
+
 
     // Debug: print curvature at a few vertices
     printf("curvature sample: v0=%.4f v1=%.4f v100=%.4f\n", mesh_curvature[0], mesh_curvature[1], mesh_vertex_count > 100 ? mesh_curvature[100] : 0.0f);
@@ -822,7 +1061,7 @@ bool load_obj(const char* path) {
     }
 
     // --- Free any previous mesh ---
-    free(mesh_positions); free(mesh_normals); free(mesh_indices); free(mesh_curvature);
+    free(mesh_positions); free(mesh_normals); free(mesh_indices); free(mesh_curvature); free(mesh_e1); free(mesh_e2); free(mesh_singularity);
     mesh_positions = (float*)malloc(v_count * 3 * sizeof(float));
     mesh_indices = (unsigned int*)malloc(tri_count * 3 * sizeof(unsigned int));
     mesh_index_count = tri_count * 3;
@@ -939,6 +1178,37 @@ void initialize_graphics(){
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh_index_count*sizeof(unsigned int), mesh_indices, GL_STATIC_DRAW);
 
+    // e1 attribute buffer (location 3)
+    GLuint e1bo;
+    glGenBuffers(1, &e1bo);
+    glBindBuffer(GL_ARRAY_BUFFER, e1bo);
+    glBufferData(GL_ARRAY_BUFFER, mesh_vertex_count * 3 * sizeof(float), mesh_e1, GL_STATIC_DRAW);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(3);
+    
+    // e2 attribute buffer (location 4)
+    GLuint e2bo;
+    glGenBuffers(1, &e2bo);
+    glBindBuffer(GL_ARRAY_BUFFER, e2bo);
+    glBufferData(GL_ARRAY_BUFFER, mesh_vertex_count * 3 * sizeof(float), mesh_e2, GL_STATIC_DRAW);
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(4);
+
+    glGenVertexArrays(1, &cross_vao);
+    glBindVertexArray(cross_vao);
+    glGenBuffers(1, &cross_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, cross_vbo);
+    glBufferData(GL_ARRAY_BUFFER, cross_line_count * 3 * sizeof(float), cross_line_vertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    GLuint cvs = compile_shader(GL_VERTEX_SHADER, cross_vertex_shader_source);
+    GLuint cfs = compile_shader(GL_FRAGMENT_SHADER, cross_fragment_shader_source);
+    
+    
+    cross_program = link_program(cvs, cfs);
+    cross_u_mvp_loc = glGetUniformLocation(cross_program, "u_mvp");
+
+
     // In initialize_graphics, replacing the empty grid_vao setup:
     float grid_verts[] = {
         -50.0f, -1.0f, -50.0f,
@@ -964,11 +1234,13 @@ void initialize_graphics(){
 
     GLuint gvs = compile_shader(GL_VERTEX_SHADER, grid_vertex_shader_source);
     GLuint gfs = compile_shader(GL_FRAGMENT_SHADER, grid_fragment_shader_source);
+    
 
     grid_program = link_program(gvs,gfs);
 
     grid_u_mvp_loc = glGetUniformLocation(grid_program, "u_mvp");
     grid_u_mesh_radius_sq_loc = glGetUniformLocation(grid_program, "u_mesh_radius_sq");
+    u_field_lic_enabled_loc = glGetUniformLocation(shader_program, "u_field_lic_enabled");
 
     //grid_u_inv_vp_loc  = glGetUniformLocation(grid_program, "u_inv_vp");
     grid_u_cam_pos_loc = glGetUniformLocation(grid_program, "u_cam_pos");
@@ -987,6 +1259,8 @@ void initialize_graphics(){
     glDeleteShader(fs);
     glDeleteShader(gvs);
     glDeleteShader(gfs);
+    glDeleteShader(cvs);
+    glDeleteShader(cfs);
 
     emscripten_set_main_loop(render_frame, 0, 1);
 }

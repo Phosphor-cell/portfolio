@@ -21,9 +21,31 @@
             <p class="pitch">I'm building <a href="https://shapesynth.com">GPU-native quad retopology</a> — turning raw 3D scans into clean meshes artists can actually use. Most of my time these days is CUDA kernels and differential geometry.</p>
 
             <div class="mode-buttons" data-active="0">
-                <button onclick="setMode(0)" class="active">Polished</button>
-                <button onclick="setMode(1)">Curvature</button>
-                <button onclick="setMode(2)">Isolines</button>
+                <button onclick="setGroup(0)" class="active">Polished</button>
+                <button onclick="setGroup(1)">Curvature</button>
+                <button onclick="setGroup(2)">Field</button>
+            </div>
+
+            <div class="sub-panel">
+                <div class="sub-panel-content" data-group="1">
+                    <div class="sub-pill" data-active="0">
+                        <button onclick="setCurvatureSub(0)" class="active">Heatmap</button>
+                        <button onclick="setCurvatureSub(1)">Isolines</button>
+                    </div>
+                </div>
+
+                <div class="sub-panel-content" data-group="2">
+                    <label class="toggle">
+                        <input type="checkbox" id="toggle-lic" checked onchange="setFieldLic(this.checked)">
+                        <span class="toggle-track"></span>
+                        <span class="toggle-label">LIC</span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" id="toggle-crosses" onchange="setFieldCrosses(this.checked)">
+                        <span class="toggle-track"></span>
+                        <span class="toggle-label">Crosses</span>
+                    </label>
+                </div>
             </div>
 
             <p class="hint">DRAG · ROTATE  /  SCROLL · ZOOM</p>
@@ -34,54 +56,116 @@
                 <a href="/resume.pdf">Résumé</a>
             </nav>
         </aside>
-        <canvas id="viewport"></canvas> 
-        <div class="status">
-            <span class="status-dot"></span>
-            <span class="status-label">RENDER · 60FPS</span>
+        <div class="canvas-wrap">
+            <canvas id="viewport"></canvas>
+            <button class="guide-tab" title="Guide">
+                <span class="guide-tab-mark">?</span>
+            </button>
+            <div class="status">
+                <span class="status-dot"></span>
+                <span class="status-label">RENDER · 60FPS</span>
+            </div>
         </div>
         <script>
-            function setMode(m) {
-                if (window.Module && Module._set_mode) {
-                    Module._set_mode(m);
-                }
-                document.querySelectorAll('.mode-buttons button').forEach((b, i) => {
-                    b.classList.toggle('active', i === m);
-                });
-                document.querySelector('.mode-buttons').dataset.active = m;
+            // UI state — separate from C mode numbering
+            let activeGroup = 0;          // 0=Polished, 1=Curvature, 2=Field
+            let curvatureSub = 0;         // 0=Heatmap(mode 1), 1=Isolines(mode 2)
+                
+            // Group → C mode mapping
+            function groupToMode(group) {
+                if (group === 0) return 0;                          // Polished
+                if (group === 1) return curvatureSub === 0 ? 1 : 2; // Curvature: Heatmap or Isolines
+                if (group === 2) return 3;                          // Field
+                return 0;
             }
-        </script>
-        <script>
+
+            function render() {
+                // Top-level pill position
+                document.querySelector('.mode-buttons').dataset.active = activeGroup;
+                document.querySelectorAll('.mode-buttons button').forEach((b, i) => {
+                    b.classList.toggle('active', i === activeGroup);
+                });
+
+                // Sub-panel visibility
+                document.querySelectorAll('.sub-panel-content').forEach(el => {
+                    el.classList.toggle('visible', parseInt(el.dataset.group) === activeGroup);
+                });
+
+                // Curvature sub-pill position
+                const subPill = document.querySelector('.sub-pill');
+                if (subPill) {
+                    subPill.dataset.active = curvatureSub;
+                    subPill.querySelectorAll('button').forEach((b, i) => {
+                        b.classList.toggle('active', i === curvatureSub);
+                    });
+                }
+            }
+
+            function setGroup(group) {
+                activeGroup = group;
+                const mode = groupToMode(group);
+                if (window.Module && Module._set_mode) {
+                    Module._set_mode(mode);
+                }
+                render();
+            }
+    
+            function setCurvatureSub(sub) {
+                curvatureSub = sub;
+                const mode = groupToMode(activeGroup);
+                if (window.Module && Module._set_mode) {
+                    Module._set_mode(mode);
+                }
+                render();
+            }
+
+            function setFieldLic(checked) {
+                if (window.Module && Module._set_field_lic) {
+                    Module._set_field_lic(checked ? 1 : 0);
+                }
+            }
+
+            function setFieldCrosses(checked) {
+                if (window.Module && Module._set_field_crosses) {
+                    Module._set_field_crosses(checked ? 1 : 0);
+                }
+            }
+
             var Module = {
                 onRuntimeInitialized: function() {
+                    // Initial state push to C
+                    Module._set_field_lic(1);      // LIC on by default
+                    Module._set_field_crosses(0);  // Crosses off by default
+                    render();
+
                     function updateStatus() {
                         const fps = Module._get_fps();
                         const label = document.querySelector('.status-label');
                         const dot = document.querySelector('.status-dot');
-                        
+
                         if (label) label.textContent = `RENDER · ${fps}FPS`;
-                        
+
                         if (dot) {
                             if (fps >= 55)      dot.style.background = '#9d8b6c';
                             else if (fps >= 30) dot.style.background = '#a8845c';
                             else                dot.style.background = '#a86855';
                         }
-                        
+
                         requestAnimationFrame(updateStatus);
                     }
                     requestAnimationFrame(updateStatus);
                 }
             };
-            
-            function setMode(m) {
-                if (window.Module && Module._set_mode) {
-                    Module._set_mode(m);
-                }
-                document.querySelectorAll('.mode-buttons button').forEach((b, i) => {
-                    b.classList.toggle('active', i === m);
-                });
-                document.querySelector('.mode-buttons').dataset.active = m;
+
+            // Optional: returning visitors skip the visible phase
+            const tab = document.querySelector('.guide-tab');
+            if (localStorage.getItem('devbhatt_intro_seen')) {
+                tab.classList.add('dimmed');  // start dimmed
+            } else {
+                setTimeout(() => tab.classList.add('dimmed'), 6000);    
             }
         </script>
+
         <script src="viewer.js"></script>
     </body>
 </html>

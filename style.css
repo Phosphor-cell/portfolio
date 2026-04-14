@@ -19,11 +19,17 @@ body {
     overflow: hidden;
 }
 
-#viewport {
+.canvas-wrap {
     flex: 1;
+    position: relative;
+    height: 100vh;
+}
+
+#viewport {
+    width: 100%;
+    height: 100%;
     background: #1a1a1a;
     display: block;
-    height: 100vh;
     touch-action: none;
 }
 
@@ -54,14 +60,14 @@ body {
 }
 
 #panel .role {
-    color: #8a8780;
-    font-size: 13px;
+    color: #a8a59f;
+    font-size: 14px;
     letter-spacing: 0.01em;
     margin: 0 0 28px;
 }
 
 #panel .pitch {
-    color: #b8b5b0;
+    color: #d4d1cc;
     font-size: 14px;
     line-height: 1.65;
     margin: 0 0 18px;
@@ -89,6 +95,28 @@ body {
 
 #panel .role a:hover {
     border-bottom-color: #b89968;
+}
+
+.sub-panel {
+    min-height: 44px;
+    margin: 16px 0 24px;
+    position: relative;
+}
+
+.sub-panel-content {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sub-panel-content.visible {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 /* Mode toggle buttons */
@@ -123,6 +151,7 @@ body {
 
 .mode-buttons[data-active="1"]::before { transform: translateX(100%); }
 .mode-buttons[data-active="2"]::before { transform: translateX(200%); }
+.mode-buttons[data-active="3"]::before { transform: translateX(300%); }
 
 .mode-buttons button {
     flex: 1;
@@ -152,6 +181,65 @@ body {
     text-shadow: 0 0 1px rgba(255, 220, 160, 0.3);
 }
 
+
+/* Sub-pill — smaller, quieter version of mode-buttons for sub-options */
+.sub-pill {
+    position: relative;
+    display: inline-flex;
+    gap: 0;
+    padding: 3px;
+    background: rgba(20, 19, 22, 0.5);
+    border-radius: 3px;
+    border: 1px solid #2a2830;
+}
+
+.sub-pill::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: calc((100% - 6px) / 2);
+    height: calc(100% - 6px);
+    background: linear-gradient(135deg, #c8c8c8 0%, #e0e0e0 50%, #a8a8a8 100%);
+    border-radius: 2px;
+    transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 0;
+    opacity: 1;          /* was 0.75 — now full */
+    box-shadow: 
+        0 0 0 1px rgba(184, 153, 104, 0.15),
+        0 1px 6px rgba(184, 153, 104, 0.12);
+}
+
+.sub-pill[data-active="1"]::before { transform: translateX(100%); }
+
+.sub-pill button {
+    flex: 1;
+    position: relative;
+    z-index: 1;
+    padding: 7px 16px;       /* was 6px 14px */
+    background: transparent;
+    border: none;
+    color: #a8a59f;          /* was #7a7770 — brighter */
+    font-size: 11px;          /* was 10px */
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: color 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: inherit;
+}
+
+.sub-pill button:hover {
+    color: #f0ede8;          /* was #d8d5d0 — brighter on hover */
+}
+
+.sub-pill button.active {
+    color: #1a1816;
+    font-weight: 600;
+}
+
+
 /* Section labels */
 .section-label {
     font-size: 11px;
@@ -180,8 +268,8 @@ body {
 
 .hint {
     font-family: 'Geist Mono', ui-monospace, monospace;
-    color: #5a5650;
-    font-size: 10px;
+    color: #8a8780;
+    font-size: 11px;
     letter-spacing: 0.15em;
     text-transform: uppercase;
 }
@@ -217,6 +305,81 @@ body {
 }
 
 
+.toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.toggle-track {
+    width: 32px;
+    height: 18px;
+    background: #1a1816;
+    border-radius: 3px;
+    position: relative;
+    transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    flex-shrink: 0;
+    box-shadow:
+        inset 0 1px 2px rgba(0, 0, 0, 0.5),
+        0 1px 0 rgba(255, 255, 255, 0.04);
+    border: 1px solid #2a2830;
+}
+
+.toggle-track::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    background: linear-gradient(135deg, #c8c8c8 0%, #e0e0e0 50%, #a8a8a8 100%);
+    border-radius: 2px;
+    transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.toggle input:checked + .toggle-track {
+    background: #2a2018;
+    border-color: rgba(184, 153, 104, 0.3);
+    box-shadow:
+        inset 0 1px 2px rgba(0, 0, 0, 0.6),
+        0 0 0 1px rgba(184, 153, 104, 0.15),
+        0 0 8px rgba(184, 153, 104, 0.15);
+}
+
+.toggle input:checked + .toggle-track::before {
+    transform: translateX(14px);
+    background: linear-gradient(180deg, #d4b47a 0%, #8a6f48 100%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 235, 190, 0.4),
+        inset 0 -1px 0 rgba(60, 45, 20, 0.3),
+        0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.toggle-label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8a8780;
+    font-weight: 500;
+    transition: color 0.2s;
+}
+
+.toggle input:checked ~ .toggle-label {
+    color: #d8d5d0;
+}
+
+
 .status {
     position: fixed;
     bottom: 24px;
@@ -224,7 +387,7 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: #6a6660;
+    color: #8a8780;
     font-family: 'Geist Mono', ui-monospace, monospace;
     font-size: 10px;
     letter-spacing: 0.15em;
@@ -252,6 +415,48 @@ body {
     margin: 0;
 }
 
+.guide-tab {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: #c9a87a;       /* warm bronze-gold, attention state */
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 4s ease-out;
+}
+
+.guide-tab.dimmed {
+    color: rgb(124, 107, 80);       /* warm grey, quiet state */
+}
+
+.guide-tab:hover {
+    color: #d4b47a !important;   /* even brighter bronze on hover */
+    transition: color 0.32s;
+}
+
+.guide-tab-mark {
+    width: 20px;          /* was 14px */
+    height: 20px;         /* was 14px */
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Satoshi', sans-serif;
+    font-size: 12px;      /* was 9px */
+    font-weight: 500;
+    line-height: 1;
+    padding-bottom: 1px;  /* compensate for ? glyph's natural baseline offset */
+}
 
 
 /* Mobile */
@@ -259,16 +464,96 @@ body {
     body {
         flex-direction: column;
         overflow: auto;
+        height: auto;
+        min-height: 100vh;
     }
+    
     #viewport {
         width: 100vw;
-        height: 60vh;
+        height: 55vh;
         flex: none;
+        order: 1;  /* mesh appears first on mobile */
     }
+    
     #panel {
         width: 100%;
-        border-left: none;
+        order: 2;
+        padding: 32px 24px 28px;
+        background: #141316;  /* solid, no gradient on mobile */
+        backdrop-filter: none;
         border-top: 1px solid #2a2830;
-        box-sizing: border-box;
+        border-left: none;
+    }
+    
+    #panel h1 {
+        font-size: 28px;
+        margin-bottom: 4px;
+    }
+    
+    #panel .role {
+        font-size: 12px;
+        margin-bottom: 20px;
+    }
+    
+    #panel .pitch {
+        font-size: 13px;
+        line-height: 1.55;
+        max-width: 100%;
+    }
+    
+    .mode-buttons {
+        margin: 20px 0 8px;
+    }
+    
+    .mode-buttons button {
+        padding: 11px 8px;  /* more vertical padding for thumbs */
+        font-size: 12px;
+    }
+    
+    .sub-panel {
+        margin: 12px 0 20px;
+    }
+    
+    .links {
+        margin: 24px 0 16px;
+        padding-top: 20px;
+    }
+    
+    .status {
+        position: relative;
+        bottom: auto;
+        left: auto;
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid #2a2830;
+        justify-content: flex-end;
+    }
+    
+    .hint {
+        font-size: 9px;
+    }
+    .guide-tab {
+        top: 16px;        /* was bottom: 16px */
+        right: 16px;
+        font-size: 9px;
+        /* remove the padding that was for the labeled version */
+    }
+
+    .sub-pill button {
+        padding: 9px 18px;
+        font-size: 11px;
+    }
+}
+
+
+
+/* Landscape phone — mesh shorter, panel inline-ish */
+@media (max-width: 768px) and (orientation: landscape) {
+    #viewport {
+        height: 45vh;
+    }
+    
+    #panel {
+        padding: 20px 24px;
     }
 }

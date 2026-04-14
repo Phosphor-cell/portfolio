@@ -71,7 +71,7 @@ var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIR
 
 // --pre-jses are emitted after the Module integration code, so that they can
 // refer to Module (if they choose; they can also define Module)
-// include: /tmp/tmpc3t3_pig.js
+// include: /tmp/tmp8ak5fffe.js
 
   if (!Module['expectedDataFileDownloads']) Module['expectedDataFileDownloads'] = 0;
   Module['expectedDataFileDownloads']++;
@@ -204,21 +204,21 @@ Module['FS_createPath']("/", "meshes", true, true);
 
   })();
 
-// end include: /tmp/tmpc3t3_pig.js
-// include: /tmp/tmpog1pwb82.js
+// end include: /tmp/tmp8ak5fffe.js
+// include: /tmp/tmpamrzjo4m.js
 
     // All the pre-js content up to here must remain later on, we need to run
     // it.
     if ((typeof ENVIRONMENT_IS_WASM_WORKER != 'undefined' && ENVIRONMENT_IS_WASM_WORKER) || (typeof ENVIRONMENT_IS_PTHREAD != 'undefined' && ENVIRONMENT_IS_PTHREAD) || (typeof ENVIRONMENT_IS_AUDIO_WORKLET != 'undefined' && ENVIRONMENT_IS_AUDIO_WORKLET)) Module['preRun'] = [];
     var necessaryPreJSTasks = Module['preRun'].slice();
-  // end include: /tmp/tmpog1pwb82.js
-// include: /tmp/tmpsr8qnm9k.js
+  // end include: /tmp/tmpamrzjo4m.js
+// include: /tmp/tmpceet2rdb.js
 
     if (!Module['preRun']) throw 'Module.preRun should exist because file support used it; did a pre-js delete it?';
     necessaryPreJSTasks.forEach((task) => {
       if (Module['preRun'].indexOf(task) < 0) throw 'All preRun tasks that exist before user pre-js code should remain after; did you replace Module or modify Module.preRun?';
     });
-  // end include: /tmp/tmpsr8qnm9k.js
+  // end include: /tmp/tmpceet2rdb.js
 
 
 var arguments_ = [];
@@ -5311,6 +5311,16 @@ var findStringEnd = (heapOrArray, idx, maxBytesToRead, ignoreNul) => {
   var _emscripten_glDisable = (x0) => GLctx.disable(x0);
   var _glDisable = _emscripten_glDisable;
 
+  var _emscripten_glDrawArrays = (mode, first, count) => {
+      // bind any client-side buffers
+      GL.preDrawHandleClientVertexAttribBindings(first + count);
+  
+      GLctx.drawArrays(mode, first, count);
+  
+      GL.postDrawHandleClientVertexAttribBindings();
+    };
+  var _glDrawArrays = _emscripten_glDrawArrays;
+
   var _emscripten_glDrawElements = (mode, count, type, indices) => {
       var buf;
       var vertexes = 0;
@@ -6179,6 +6189,10 @@ function checkIncomingModuleAPI() {
 // Imports from the Wasm binary.
 var _get_fps = Module['_get_fps'] = makeInvalidEarlyAccess('_get_fps');
 var _set_mode = Module['_set_mode'] = makeInvalidEarlyAccess('_set_mode');
+var _set_field_lic = Module['_set_field_lic'] = makeInvalidEarlyAccess('_set_field_lic');
+var _set_field_crosses = Module['_set_field_crosses'] = makeInvalidEarlyAccess('_set_field_crosses');
+var _get_field_lic = Module['_get_field_lic'] = makeInvalidEarlyAccess('_get_field_lic');
+var _get_field_crosses = Module['_get_field_crosses'] = makeInvalidEarlyAccess('_get_field_crosses');
 var _malloc = makeInvalidEarlyAccess('_malloc');
 var _main = Module['_main'] = makeInvalidEarlyAccess('_main');
 var _fflush = makeInvalidEarlyAccess('_fflush');
@@ -6198,6 +6212,10 @@ var wasmTable = makeInvalidEarlyAccess('wasmTable');
 function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['get_fps'] != 'undefined', 'missing Wasm export: get_fps');
   assert(typeof wasmExports['set_mode'] != 'undefined', 'missing Wasm export: set_mode');
+  assert(typeof wasmExports['set_field_lic'] != 'undefined', 'missing Wasm export: set_field_lic');
+  assert(typeof wasmExports['set_field_crosses'] != 'undefined', 'missing Wasm export: set_field_crosses');
+  assert(typeof wasmExports['get_field_lic'] != 'undefined', 'missing Wasm export: get_field_lic');
+  assert(typeof wasmExports['get_field_crosses'] != 'undefined', 'missing Wasm export: get_field_crosses');
   assert(typeof wasmExports['malloc'] != 'undefined', 'missing Wasm export: malloc');
   assert(typeof wasmExports['__main_argc_argv'] != 'undefined', 'missing Wasm export: __main_argc_argv');
   assert(typeof wasmExports['fflush'] != 'undefined', 'missing Wasm export: fflush');
@@ -6213,6 +6231,10 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['__indirect_function_table'] != 'undefined', 'missing Wasm export: __indirect_function_table');
   _get_fps = Module['_get_fps'] = createExportWrapper('get_fps', 0);
   _set_mode = Module['_set_mode'] = createExportWrapper('set_mode', 1);
+  _set_field_lic = Module['_set_field_lic'] = createExportWrapper('set_field_lic', 1);
+  _set_field_crosses = Module['_set_field_crosses'] = createExportWrapper('set_field_crosses', 1);
+  _get_field_lic = Module['_get_field_lic'] = createExportWrapper('get_field_lic', 0);
+  _get_field_crosses = Module['_get_field_crosses'] = createExportWrapper('get_field_crosses', 0);
   _malloc = createExportWrapper('malloc', 1);
   _main = Module['_main'] = createExportWrapper('__main_argc_argv', 2);
   _fflush = createExportWrapper('fflush', 1);
@@ -6297,6 +6319,8 @@ var wasmImports = {
   glDepthMask: _glDepthMask,
   /** @export */
   glDisable: _glDisable,
+  /** @export */
+  glDrawArrays: _glDrawArrays,
   /** @export */
   glDrawElements: _glDrawElements,
   /** @export */
