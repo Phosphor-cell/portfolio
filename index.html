@@ -13,48 +13,61 @@
 
     <body>
         <aside id="panel">
-    <h1>Dev Bhatt</h1>
-    <p class="role">Founder, <a href="https://shapesynth.com">ShapeSynth</a></p>
-    <p class="pitch">A real-time mesh viewer written from scratch in C++ and GLSL, compiled to WebAssembly. No Three.js, no engine — every pixel is hand-authored graphics code.</p>
+            <h1>Dev Bhatt</h1>
+            <p class="role">Founder & CTO, <a href="https://shapesynth.com">ShapeSynth</a></p>
 
-    <p class="section-label">Shading Mode</p>
-    <div class="mode-buttons" data-active="0" >
-        <button id="btn-damascus" class="active" onclick="setMode(0)">Damascus</button>
-        <button id="btn-curvature" onclick="setMode(1)">Curvature</button>
-        <button id="btn-iso" onclick="setMode(2)">Isolines</button>
-    </div>
-    <script>
-        function setMode(m) {
-            // Tell WASM about the mode change (triggers the shader transition)
-            if (window.Module && Module._set_mode) {
-                Module._set_mode(m);
-            }
+            <p class="pitch">A real-time mesh viewer written from scratch in C++ and GLSL, compiled to WebAssembly. No Three.js, no engine — every pixel is hand-authored.</p>
 
-            // Update button active states
-            const buttons = document.querySelectorAll('.mode-buttons button');
-            buttons.forEach((b, i) => {
-                b.classList.toggle('active', i === m);
-            });
+            <p class="pitch">I'm building <a href="https://shapesynth.com">GPU-native quad retopology</a> — turning raw 3D scans into clean meshes artists can actually use. Most of my time these days is CUDA kernels and differential geometry.</p>
 
-            // Slide the pill
-            document.querySelector('.mode-buttons').dataset.active = m;
-        }
-    </script>
+            <div class="mode-buttons" data-active="0">
+                <button onclick="setMode(0)" class="active">Polished</button>
+                <button onclick="setMode(1)">Curvature</button>
+                <button onclick="setMode(2)">Isolines</button>
+            </div>
 
-    <p class="section-label">Interaction</p>
-    <div class="probe-wrap">
-        <p class="hint">Drag to rotate · Scroll to zoom</p>
-    </div>
+            <p class="hint">DRAG · ROTATE  /  SCROLL · ZOOM</p>
 
-    <nav class="links">
-        <a href="mailto:">Email</a>
-        <a href="https://github.com/Phosphor-cell">GitHub</a>
-        <a href="/resume.pdf">Résumé</a>
-    </nav>
-
-    <p class="footnote">No Three.js. No React. ~950 lines of C++.</p>
-</aside>
+            <nav class="links">
+                <a href="mailto:">Email</a>
+                <a href="https://github.com/Phosphor-cell">GitHub</a>
+                <a href="/resume.pdf">Résumé</a>
+            </nav>
+        </aside>
         <canvas id="viewport"></canvas> 
-        <script src="viewer.js"></script>
+        <div class="status">
+            <span class="status-dot"></span>
+            <span class="status-label">RENDER · 60FPS</span>
+        </div>
+        <script>
+            function setMode(m) {
+                if (window.Module && Module._set_mode) {
+                    Module._set_mode(m);
+                }
+                document.querySelectorAll('.mode-buttons button').forEach((b, i) => {
+                    b.classList.toggle('active', i === m);
+                });
+                document.querySelector('.mode-buttons').dataset.active = m;
+            }
+        </script>
+        <script src="viewer.js">
+            function updateStatus() {
+                if (window.Module && Module._get_fps) {
+                    const fps = Module._get_fps();
+                    const label = document.querySelector('.status-label');
+                    const dot = document.querySelector('.status-dot');
+                    
+                    if (label) label.textContent = `RENDER · ${fps}FPS`;
+                    
+                    if (dot) {
+                        if (fps >= 55)      dot.style.background = '#9d8b6c';  // warm bronze, healthy
+                        else if (fps >= 30) dot.style.background = '#a8845c';  // amber-bronze, okay
+                        else                dot.style.background = '#a86855';  // muted terracotta, strained
+                    }
+                }
+                requestAnimationFrame(updateStatus);
+            }
+            requestAnimationFrame(updateStatus);
+        </script>
     </body>
 </html>

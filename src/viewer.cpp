@@ -25,6 +25,7 @@ GLint grid_u_inv_vp_loc = -1;
 GLint grid_u_cam_pos_loc = -1;
 GLint grid_u_mvp_loc = -1;
 
+
 int current_mode = 0;
 GLint u_mode_loc = -1;
 GLint grid_u_mesh_radius_sq_loc = -1;
@@ -40,6 +41,12 @@ GLuint ebo = 0;
 GLuint nbo = 0;
 
 
+int prev_mode = 0;
+double mode_change_time = 0.0;
+GLint u_prev_mode_loc = -1;
+GLint u_mode_blend_loc = -1;
+
+
 float cam_theta = 0.0f;
 float cam_phi = 0.25f;
 float cam_dist = 5.0f;
@@ -49,8 +56,21 @@ bool dragging = false;
 int last_x = 0, last_y=0;
 
 
-extern "C" EMSCRIPTEN_KEEPALIVE void set_mode(int m) { current_mode = m; }
+double fps_smoothed = 60.0;
+double fps_last_update = 0.0f;
+char fps_text[32];
 
+
+extern "C" EMSCRIPTEN_KEEPALIVE int get_fps() {
+    return (int)(fps_smoothed + 0.5);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void set_mode(int m) {
+    if (m == current_mode) return;  // no-op if same mode
+    prev_mode = current_mode;
+    current_mode = m;
+    mode_change_time = emscripten_get_now();
+}
 
 
 float triangle_vertices[] = {
@@ -97,7 +117,7 @@ const char* grid_fragment_shader_source = R"glsl(#version 300 es
         float alpha = line * fade;
         if (alpha < 0.01) discard;
 
-        vec3 line_color = vec3(0.25, 0.55, 0.60);   // muted teal, matches isolines
+        vec3 line_color = vec3(0.32, 0.30, 0.28);  // warm grey-brown, near-monochrome
         frag_color = vec4(line_color, alpha);
     }
 )glsl";
@@ -126,12 +146,11 @@ const char* fragment_shader_source = R"glsl(#version 300 es
     in float v_curvature;
     uniform int u_mode;
     uniform vec3 u_cam_pos;
+    uniform int u_prev_mode;
+    uniform float u_mode_blend;
     out vec4 frag_color;
 
-    // Damascus wave pattern — layered sines with domain warp
     float damascus(vec3 p) {
-        // Domain warp: shifts sampling position by another wave field,
-        // which turns straight bands into flowing curves
         vec3 warp = vec3(
             sin(p.y * 1.8 + p.z * 0.9),
             sin(p.z * 1.6 + p.x * 1.1),
@@ -139,9 +158,7 @@ const char* fragment_shader_source = R"glsl(#version 300 es
         ) * 0.8;
         vec3 q = p + warp;
 
-        // Primary directional bands
         float d = sin(q.x * 3.5 + q.y * 1.2 + q.z * 0.8);
-        // Finer detail
         d += 0.5 * sin(q.y * 7.0 + q.x * 2.0);
         d += 0.25 * sin(q.z * 11.0 - q.x * 3.5);
         d += 0.12 * sin(q.x * 19.0 + q.z * 8.0);
@@ -149,124 +166,136 @@ const char* fragment_shader_source = R"glsl(#version 300 es
         return d;
     }
 
-    void main(){
+    // Damascus wave pattern — layered sines with domain warp
+    float damascus_triplanar(vec3 p, vec3 n) {
+    // Sample the same noise function projected onto each axis-aligned plane
+        float dx = damascus(vec3(p.y, p.z, 0.0) * 4.0);   // looking down x-axis
+        float dy = damascus(vec3(p.x, p.z, 0.0) * 4.0);   // looking down y-axis
+        float dz = damascus(vec3(p.x, p.y, 0.0) * 4.0);   // looking down z-axis
 
-        if (u_mode == 1) {
-            float t = clamp(v_curvature * 0.5 + 0.5, 0.0, 1.0);
+        // Weight by absolute normal — surfaces facing +x show the dx sample, etc.
+        vec3 weights = abs(n);
+        weights = pow(weights, vec3(2.0));  // sharpen the blend so transitions are subtle
+        weights /= (weights.x + weights.y + weights.z);
 
-            vec3 neg_color = vec3(0.08, 0.09, 0.10);
-            vec3 mid_color = vec3(0.55, 0.55, 0.55);
-            vec3 pos_color = vec3(0.95, 0.93, 0.88);
+        return dx * weights.x + dy * weights.y + dz * weights.z;
+    }
 
-            vec3 base;
-            if (t < 0.5) base = mix(neg_color, mid_color, t * 2.0);
-            else         base = mix(mid_color, pos_color, (t - 0.5) * 2.0);
-
-            // Fresnel — 0 when looking straight at surface, 1 at grazing angles
-            vec3 N = normalize(v_normal);
-            vec3 V = normalize(u_cam_pos - v_world_pos);
-            float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-
-            // Subtle cool-shift at rim — shifts toward pale blue-green
-            vec3 rim_tint = vec3(0.65, 0.80, 0.95);
-
-            // Also add a faint warm shift based on curvature — high curvature = warmer rim
-            vec3 warm_shift = vec3(1.0, 0.85, 0.70);
-            vec3 chromatic = mix(rim_tint, warm_shift, t);
-
-            // Apply rim tint only at grazing angles, muted
-            vec3 color = mix(base, base * chromatic, fresnel * 0.6);
-
-            // Gentle specular highlight to suggest polish
-            vec3 L = normalize(vec3(0.6, 0.8, 0.4));
-            vec3 H = normalize(L + V);
-            float spec = pow(max(dot(N, H), 0.0), 80.0);
-            color += vec3(0.15) * spec;
-
-            frag_color = vec4(color, 1.0);
-            return;
-        }
-
-        if (u_mode == 2) {
-            // Isolines at regular intervals of curvature
-            // In the isoline mode branch
-            float freq = 8.0;
-            float scaled = v_curvature * freq;
-            float deriv = fwidth(scaled);
-            
-            // Major lines — every integer
-            float f1 = fract(scaled);
-            float d1 = min(f1, 1.0 - f1) / max(deriv, 0.0001);
-            float major = 1.0 - smoothstep(0.0, 1.5, d1);
-            
-            // Minor lines — every 0.25, much fainter
-            float scaled_minor = scaled * 4.0;
-            float f2 = fract(scaled_minor);
-            float d2 = min(f2, 1.0 - f2) / max(deriv * 4.0, 0.0001);
-            float minor = 1.0 - smoothstep(0.0, 1.5, d2);
-            
-            // Base = your monochrome colormap (reuse the t calculation)
-            float t = clamp(v_curvature * 0.5 + 0.5, 0.0, 1.0);
-            vec3 base;
-            if (t < 0.5) base = mix(vec3(0.08, 0.09, 0.10), vec3(0.55, 0.55, 0.55), t * 2.0);
-            else         base = mix(vec3(0.55, 0.55, 0.55), vec3(0.95, 0.93, 0.88), (t - 0.5) * 2.0);
-            
-            // Subtle lighting for shape readability
-            vec3 N = normalize(v_normal);
-            vec3 L = normalize(vec3(0.6, 0.8, 0.4));
-            float diffuse = 0.5 + 0.5 * max(dot(N, L), 0.0);
-            base *= diffuse;
-            
-            // Line colors — bright teal for major, muted teal for minor
-            vec3 major_color = vec3(0.40, 0.85, 0.90);
-            vec3 minor_color = vec3(0.25, 0.50, 0.55);
-            
-            // Composite: base surface, then minor lines, then major lines on top
-            vec3 color = base;
-            color = mix(color, minor_color, minor * 0.4);
-            color = mix(color, major_color, major * 0.85);
-            
-            frag_color = vec4(color, 1.0);
-            return;
-        }
-
+    vec3 shade_damascus(){
         vec3 N = normalize(v_normal);
         vec3 V = normalize(u_cam_pos - v_world_pos);
+        vec3 L = normalize(vec3(0.5, 0.8, 0.3));
+        vec3 H = normalize(L + V);
+    
+        float NdotL = max(dot(N, L), 0.0);
+        float NdotV = max(dot(N, V), 0.0);
+        float NdotH = max(dot(N, H), 0.0);
+    
+        vec3 base = vec3(0.42, 0.40, 0.38);
+    
+        float diffuse = 0.35 + 0.65 * NdotL;
+        vec3 color = base * diffuse;
+    
+        float fill = max(dot(N, vec3(0.0, -1.0, 0.0)), 0.0);
+        color += vec3(0.12, 0.10, 0.08) * fill * 0.4;
+    
+        float spec = pow(NdotH, 24.0);
+        color += vec3(0.95, 0.90, 0.82) * spec * 0.35;
+    
+        float fresnel = pow(1.0 - NdotV, 4.0);
+        color += vec3(0.8, 0.75, 0.70) * fresnel * 0.18;
+
+        return color;
+    }
+    
+    vec3 shade_curvature(){
+        float t = clamp(v_curvature * 0.5 + 0.5, 0.0, 1.0);
+    
+        vec3 neg_color = vec3(0.08, 0.09, 0.10);
+        vec3 mid_color = vec3(0.55, 0.55, 0.55);
+        vec3 pos_color = vec3(0.95, 0.93, 0.88);
+        vec3 base;
+        if (t < 0.5) base = mix(neg_color, mid_color, t * 2.0);
+        else         base = mix(mid_color, pos_color, (t - 0.5) * 2.0);
+    
+        vec3 N = normalize(v_normal);
+        vec3 V = normalize(u_cam_pos - v_world_pos);
+        float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+        vec3 rim_tint = vec3(0.65, 0.80, 0.95);
+        vec3 warm_shift = vec3(1.0, 0.85, 0.70);
+        vec3 chromatic = mix(rim_tint, warm_shift, t);
+        vec3 color = mix(base, base * chromatic, fresnel * 0.6);
+    
         vec3 L = normalize(vec3(0.6, 0.8, 0.4));
         vec3 H = normalize(L + V);
+        float spec = pow(max(dot(N, H), 0.0), 80.0);
+        color += vec3(0.15) * spec;
+    
+        return color;
+    }
+    
+    vec3 shade_isolines(){
+        float freq = 8.0;
+        float scaled = v_curvature * freq;
+        float deriv = fwidth(scaled);
+    
+        float f1 = fract(scaled);
+        float d1 = min(f1, 1.0 - f1) / max(deriv, 0.0001);
+        float major = 1.0 - smoothstep(0.0, 1.5, d1);
+    
+        float scaled_minor = scaled * 4.0;
+        float f2 = fract(scaled_minor);
+        float d2 = min(f2, 1.0 - f2) / max(deriv * 4.0, 0.0001);
+        float minor = 1.0 - smoothstep(0.0, 1.5, d2);
+    
+        float t = clamp(v_curvature * 0.5 + 0.5, 0.0, 1.0);
+        vec3 base;
+        if (t < 0.5) base = mix(vec3(0.08, 0.09, 0.10), vec3(0.55, 0.55, 0.55), t * 2.0);
+        else         base = mix(vec3(0.55, 0.55, 0.55), vec3(0.95, 0.93, 0.88), (t - 0.5) * 2.0);
+    
+        vec3 N = normalize(v_normal);
+        vec3 L = normalize(vec3(0.6, 0.8, 0.4));
+        float diffuse = 0.5 + 0.5 * max(dot(N, L), 0.0);
+        base *= diffuse;
+    
+        vec3 major_color = vec3(0.78, 0.62, 0.40);
+        vec3 minor_color = vec3(0.45, 0.36, 0.24);
+    
+        vec3 color = base;
+        color = mix(color, minor_color, minor * 0.4);
+        color = mix(color, major_color, major * 0.85);
+    
+        return color;
+    }   
+    
+    
+    float compute_local_blend(int target_mode, float global_blend) {
+        if (target_mode == 0) {
+            // Damascus: top-to-bottom wipe
+            return clamp((v_world_pos.y + 1.0 + global_blend * 4.0 - 2.0) * 1.5, 0.0, 1.0);
+        } else if (target_mode == 1) {
+            // Curvature: radial outward from center
+            float dist = length(v_world_pos);
+            return clamp((global_blend * 3.0 - dist) * 1.5, 0.0, 1.0);
+        } else {
+            // Isolines: front-to-back along Z
+            return clamp((v_world_pos.z + 1.0 + global_blend * 4.0 - 2.0) * 1.5, 0.0, 1.0);
+        }
+    }
+    
 
-        float NdotV = max(dot(N, V), 0.0);
-        float NdotL = max(dot(N, L), 0.0);
-        float NdotH = max(dot(N, H), 0.0);
+    void main(){
+        vec3 modes[3];
+        modes[0] = shade_damascus();
+        modes[1] = shade_curvature();
+        modes[2] = shade_isolines();
+        float local_blend = compute_local_blend(u_mode, u_mode_blend);
+        local_blend = smoothstep(0.0, 1.0, local_blend);
 
-        // Sample damascus in world space — no seams, 3D-consistent
-        float d = damascus(v_world_pos * 2.2);
-        // Normalize to [0, 1] and sharpen the band contrast
-        float band = smoothstep(-0.3, 0.3, d);
+        vec3 from = modes[u_prev_mode];
+        vec3 to   = modes[u_mode];
 
-        // Two-tone steel palette
-        vec3 dark_steel  = vec3(0.18, 0.20, 0.24);   // oxidized layer
-        vec3 light_steel = vec3(0.78, 0.80, 0.85);   // polished layer
-        vec3 base = mix(dark_steel, light_steel, band);
-
-        // Thin bright etch lines at band boundaries — the signature damascus vein
-        float edge = 1.0 - smoothstep(0.0, 0.1, abs(d));
-        base += vec3(1.0, 0.95, 0.85) * edge * 0.4;
-
-        // Metallic shading — strong diffuse falloff
-        float shadow = 0.25 + 0.75 * NdotL;
-        vec3 color = base * shadow;
-
-        // Anisotropic-ish specular — metals reflect sharply
-        float spec = pow(NdotH, 100.0);
-        // Specular tints with the underlying steel band
-        color += mix(vec3(0.6, 0.55, 0.5), vec3(1.0, 0.95, 0.85), band) * spec * 1.8;
-
-        // Subtle silhouette
-        float fresnel = pow(1.0 - NdotV, 4.0);
-        color += vec3(0.5, 0.55, 0.65) * fresnel * 0.3;
-
-        frag_color = vec4(color, 1.0);
+        frag_color = vec4(mix(from, to, u_mode_blend), 1.0);
     }
 )glsl";
 
@@ -443,6 +472,17 @@ void render_frame(){
     double now = emscripten_get_now();     // ms since page load
     static double last = now;
     float dt = (float)(now - last) * 0.001f;
+
+    // FPS smoothing — exponential moving average
+    double instant_fps = 1.0 / (dt > 0.0001 ? dt : 0.0001);
+    fps_smoothed = fps_smoothed * 0.95 + instant_fps * 0.05;
+
+    // Update text every 250ms (avoid jittery readout)
+    if (now - fps_last_update > 250.0) {
+        snprintf(fps_text, sizeof(fps_text), "RENDER · %dFPS", (int)(fps_smoothed + 0.5));
+        fps_last_update = now;
+    }
+    
     last = now;
     
     if (!dragging) {
@@ -456,7 +496,7 @@ void render_frame(){
     
     float view[16], proj[16], mvp[16];
     mat4_look_at(view, eye_x, eye_y, eye_z,
-                       0.0f, 0.0f, 0.0f,
+                       0.3f, 0.0f, 0.0f,
                        0.0f, 1.0f, 0.0f);
     mat4_perspective(proj, 1.0472f, aspect, 0.1f, 100.0f);
     mat4_multiply(mvp, proj, view);
@@ -472,6 +512,12 @@ void render_frame(){
     glDepthMask(GL_TRUE);
     glUseProgram(shader_program);
     glUniform1i(u_mode_loc, current_mode);
+    double elapsed = emscripten_get_now() - mode_change_time;
+    float blend = (float)fmin(elapsed / 500.0, 1.0);  // 500ms transition
+    // Smooth cubic ease
+    blend = blend * blend * (3.0f - 2.0f * blend);
+    glUniform1i(u_prev_mode_loc, prev_mode);
+    glUniform1f(u_mode_blend_loc, blend);
     glUniformMatrix4fv(u_mvp_loc, 1, GL_FALSE, mvp);
     glUniform3f(u_cam_pos_loc, eye_x, eye_y, eye_z);
     glBindVertexArray(vao);
@@ -854,6 +900,9 @@ void initialize_graphics(){
     u_mvp_loc = glGetUniformLocation(shader_program, "u_mvp");
     u_cam_pos_loc = glGetUniformLocation(shader_program, "u_cam_pos");
     u_mode_loc = glGetUniformLocation(shader_program, "u_mode");
+
+    u_prev_mode_loc = glGetUniformLocation(shader_program, "u_prev_mode");
+    u_mode_blend_loc = glGetUniformLocation(shader_program, "u_mode_blend");
 
 
     glGenVertexArrays(1, &vao);
