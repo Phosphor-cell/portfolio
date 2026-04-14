@@ -487,7 +487,7 @@ void render_frame(){
     last = now;
     
     if (!dragging) {
-        cam_theta += 0.15f * dt;  // 0.5 radians per second, framerate-independent
+        cam_theta += 0.10f * dt;  // 0.5 radians per second, framerate-independent
     }
     
 

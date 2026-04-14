@@ -79,6 +79,18 @@ body {
     border-bottom-color: #5ab8bf;
 }
 
+
+#panel .role a {
+    color: #b89968;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(184, 153, 104, 0.3);
+    transition: border-color 0.2s;
+}
+
+#panel .role a:hover {
+    border-bottom-color: #b89968;
+}
+
 /* Mode toggle buttons */
 .mode-buttons {
     position: relative;
